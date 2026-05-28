@@ -1,0 +1,177 @@
+/* Iridium Layout Manager — block grid + edit affordances.
+   Kept self-contained so the plugin works without depending on host CSS.
+   Class names are namespaced ".lm-" to avoid colliding with iridium's own. */
+
+.lm-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Top bar: heading on the left, controls on the right. */
+.lm-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.lm-heading {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.lm-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.lm-controls > select {
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: 0.375rem;
+    background: var(--color-background, #fff);
+    font-size: 0.875rem;
+    min-width: 12rem;
+}
+
+.lm-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid var(--color-border, #e5e7eb);
+    background: var(--color-background, #fff);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.lm-btn:hover {
+    background: var(--color-muted, #f3f4f6);
+}
+
+.lm-btn-primary {
+    background: var(--color-primary, #2563eb);
+    color: #fff;
+    border-color: transparent;
+}
+
+.lm-btn-primary:hover {
+    filter: brightness(1.05);
+}
+
+.lm-btn-danger {
+    background: var(--color-destructive, #dc2626);
+    color: #fff;
+    border-color: transparent;
+}
+
+/* Grid container — column count provided inline via --lm-cols so the host
+   can vary it per page. */
+.lm-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--lm-cols, 2), minmax(0, 1fr));
+    gap: 1rem;
+    min-height: 4rem;
+}
+
+/* Single block in the grid. data-cols is the live column span for this
+   block; we map it onto a CSS variable so the inline attribute drives the
+   grid-column declaration without dynamic style attributes (CSP-friendly). */
+.lm-block {
+    grid-column: span var(--lm-block-cols, 1) / span var(--lm-block-cols, 1);
+    padding: 0.5rem;
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: 0.5rem;
+    background: var(--color-background, #fff);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 5rem;
+}
+
+.lm-block[data-cols="1"]  { --lm-block-cols: 1; }
+.lm-block[data-cols="2"]  { --lm-block-cols: 2; }
+.lm-block[data-cols="3"]  { --lm-block-cols: 3; }
+.lm-block[data-cols="4"]  { --lm-block-cols: 4; }
+.lm-block[data-cols="5"]  { --lm-block-cols: 5; }
+.lm-block[data-cols="6"]  { --lm-block-cols: 6; }
+.lm-block[data-cols="7"]  { --lm-block-cols: 7; }
+.lm-block[data-cols="8"]  { --lm-block-cols: 8; }
+.lm-block[data-cols="9"]  { --lm-block-cols: 9; }
+.lm-block[data-cols="10"] { --lm-block-cols: 10; }
+.lm-block[data-cols="11"] { --lm-block-cols: 11; }
+.lm-block[data-cols="12"] { --lm-block-cols: 12; }
+
+/* Per-block edit controls. Hidden in view mode; revealed via the page's
+   x-show="editMode" wrapper. */
+.lm-block-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+    margin: -0.5rem -0.5rem 0;
+    background: var(--color-muted, #f9fafb);
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+}
+
+.lm-block-handle {
+    margin-left: auto;
+    cursor: grab;
+    user-select: none;
+    font-size: 1rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+}
+
+.lm-block-handle:active {
+    cursor: grabbing;
+}
+
+.lm-block-handle:hover {
+    background: var(--color-border, #e5e7eb);
+}
+
+.lm-block-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.95rem;
+    border-radius: 0.25rem;
+    line-height: 1;
+}
+
+.lm-block-btn:hover {
+    background: var(--color-border, #e5e7eb);
+}
+
+.lm-block-btn[data-variant="danger"]:hover {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+/* Empty state when the user hasn't added any blocks yet. */
+.lm-empty {
+    grid-column: 1 / -1;
+    border: 2px dashed var(--color-border, #e5e7eb);
+    border-radius: 0.5rem;
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--color-muted-foreground, #6b7280);
+    font-size: 0.9rem;
+}
+
+/* Drag ghost styling — applied by sortable while a block is mid-drag. */
+.lm-block.sortable-ghost,
+.lm-block.sortable-chosen {
+    opacity: 0.4;
+}

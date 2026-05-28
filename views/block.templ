@@ -1,0 +1,61 @@
+package views
+
+import "strconv"
+
+// Block renders one placed block, including its edit controls (hidden in
+// view mode). Drag handle, remove, +/- resize, full-width toggle.
+templ Block(d *PageData, b BlockData) {
+    <div
+        class="lm-block"
+        data-lm-block
+        data-id={ b.ID }
+        data-cols={ strconv.Itoa(b.Cols) }
+        if d.AllowReorder {
+            x-sort:item
+        }
+    >
+        <div class="lm-block-controls" x-show="editMode" x-cloak>
+            <button
+                type="button"
+                class="lm-block-btn"
+                data-variant="danger"
+                title="Remove"
+                hx-post={ b.RemoveURL }
+                hx-target="[data-lm-grid]"
+                hx-swap="outerHTML"
+            >×</button>
+            if d.AllowResize {
+                <button
+                    type="button"
+                    class="lm-block-btn"
+                    title="Decrease size"
+                    hx-post={ b.ResizeDecURL }
+                    hx-target="[data-lm-grid]"
+                    hx-swap="outerHTML"
+                >−</button>
+                <button
+                    type="button"
+                    class="lm-block-btn"
+                    title="Increase size"
+                    hx-post={ b.ResizeIncURL }
+                    hx-target="[data-lm-grid]"
+                    hx-swap="outerHTML"
+                >+</button>
+                <button
+                    type="button"
+                    class="lm-block-btn"
+                    title="Toggle full width"
+                    hx-post={ b.ResizeToggleURL }
+                    hx-target="[data-lm-grid]"
+                    hx-swap="outerHTML"
+                >⇔</button>
+            }
+            if d.AllowReorder {
+                <span class="lm-block-handle" title="Drag to reorder">⠿</span>
+            }
+        </div>
+        <div class="lm-block-content">
+            @b.Renderer
+        </div>
+    </div>
+}

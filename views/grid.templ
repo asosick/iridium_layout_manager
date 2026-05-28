@@ -1,0 +1,36 @@
+package views
+
+import "fmt"
+
+// Grid renders the block container. Pulled out of LayoutManagerComponent so
+// it can be the htmx swap target (each mutation re-renders just this
+// component and morph-swaps it). The outer attribute set:
+//
+//   - data-lm-grid:        marker for hx-target and Alpine queries.
+//   - data-reorder-url:    the POST endpoint our JS calls after a drag.
+//   - x-sort=...:          Alpine sort plugin (already bundled by iridium-core)
+//                          drives drag-to-reorder; the handler is provided by
+//                          our layout_manager Alpine component.
+//   - x-sort:config:       restrict drag initiation to .lm-block-handle so a
+//                          click anywhere else in the block doesn't grab it.
+templ Grid(d *PageData) {
+    <div
+        class="lm-grid"
+        style={ fmt.Sprintf("--lm-cols:%d", d.GridColumns) }
+        data-lm-grid
+        data-reorder-url={ d.URLs.Reorder }
+        if d.AllowReorder {
+            x-sort="handleReorder"
+            x-sort:config="{ handle: '.lm-block-handle' }"
+        }
+    >
+        if len(d.Blocks) == 0 {
+            <div class="lm-empty">
+                No blocks yet. Click 🔒 Edit and pick a block to add.
+            </div>
+        }
+        for _, b := range d.Blocks {
+            @Block(d, b)
+        }
+    </div>
+}

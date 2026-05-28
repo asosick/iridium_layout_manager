@@ -1,0 +1,11 @@
+package views
+
+// MissingBlock is the placeholder used when a stored block references a
+// BlockSpec that's no longer registered (e.g. the consumer removed it from
+// the page's .Blocks(...) list since the layout was last saved). We render a
+// small warning rather than crashing so the user can see and remove it.
+templ MissingBlock(key string) {
+    <div style="padding:0.5rem; color:#92400e; background:#fef3c7; border-radius:0.375rem; font-size:0.85rem;">
+        Block type <code>{ key }</code> is no longer available. Remove it via the edit controls.
+    </div>
+}

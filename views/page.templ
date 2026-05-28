@@ -1,0 +1,118 @@
+package views
+
+import (
+    "fmt"
+    "net/http"
+)
+
+// PageData carries everything the page template needs at render time.
+// Constructed by LayoutManagerPage.renderPage() per request.
+type PageData struct {
+    Heading        string
+    GridColumns    int
+    Blocks         []BlockData       // currently-placed blocks
+    AddOptions     []BlockOption     // dropdown options
+    ShowLockButton bool
+    AllowReorder   bool
+    AllowResize    bool
+    // URLs are pre-resolved (panel + page prefix already applied) so the
+    // template doesn't need to know about iridium's path conventions.
+    URLs PageURLs
+    // Request is threaded through so per-block dynamic components can read
+    // it during their own Render pass.
+    Request *http.Request
+    Writer  http.ResponseWriter
+}
+
+// PageURLs lists the htmx endpoints the page uses. Pre-computed once per
+// render so the template doesn't have to string-concat them.
+type PageURLs struct {
+    Add     string
+    Remove  string // append ?id=...
+    Resize  string // append ?id=...&delta=±1 (or ?cols=N)
+    Reorder string
+    Save    string
+    CSS     string
+    JS      string
+}
+
+// BlockOption is one entry in the "Add" dropdown.
+type BlockOption struct {
+    Key   string
+    Label string
+}
+
+// BlockData is one placed block, with its rendering Component pre-resolved.
+type BlockData struct {
+    ID         string
+    Cols       int
+    Renderer   templ.Component
+    // RemoveURL etc are precomputed full URLs (including the id query).
+    RemoveURL      string
+    ResizeIncURL   string
+    ResizeDecURL   string
+    ResizeToggleURL string
+}
+
+// LayoutManagerComponent is the root component — the toolbar + grid. Rendered
+// inside the panel chrome by iridium's CustomPanelPage.
+templ LayoutManagerComponent(d *PageData) {
+    <link rel="stylesheet" href={ d.URLs.CSS }/>
+    <div
+        class="lm-page"
+        x-data="layout_manager"
+    >
+        @Toolbar(d)
+        @Grid(d)
+        <script src={ d.URLs.JS } defer></script>
+    </div>
+}
+
+// Toolbar renders the heading + edit-mode controls. The add / save / lock
+// controls are gated client-side on editMode for snappy toggling.
+templ Toolbar(d *PageData) {
+    <div class="lm-toolbar">
+        <h1 class="lm-heading">{ d.Heading }</h1>
+        <div class="lm-controls">
+            <div x-show="editMode" x-cloak class="lm-controls">
+                if len(d.AddOptions) > 0 {
+                    <form
+                        hx-post={ d.URLs.Add }
+                        hx-target="[data-lm-grid]"
+                        hx-swap="outerHTML"
+                        class="lm-controls"
+                    >
+                        <select name="type" data-lm-type-select x-model="selectedType">
+                            for _, opt := range d.AddOptions {
+                                <option value={ opt.Key }>{ opt.Label }</option>
+                            }
+                        </select>
+                        <button type="submit" class="lm-btn lm-btn-primary">+ Add</button>
+                    </form>
+                }
+                <button
+                    type="button"
+                    class="lm-btn"
+                    hx-post={ d.URLs.Save }
+                    hx-target="[data-lm-grid]"
+                    hx-swap="outerHTML"
+                >
+                    Save
+                </button>
+            </div>
+            if d.ShowLockButton {
+                <button type="button" class="lm-btn" @click="toggleEdit">
+                    <span x-show="!editMode">🔒 Edit</span>
+                    <span x-show="editMode" x-cloak>🔓 Done</span>
+                </button>
+            }
+        </div>
+    </div>
+}
+
+// gridStyleVar returns an inline style declaration setting the --lm-cols var
+// the CSS reads. We use a CSS variable rather than a raw grid-template-
+// columns value so the rest of the styling stays in the stylesheet.
+func gridStyleVar(cols int) string {
+    return fmt.Sprintf("--lm-cols:%d", cols)
+}

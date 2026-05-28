@@ -122,14 +122,6 @@ ships with — no extra JS dependency. After a drop:
 The server's order is the source of truth, so the morph-swap also corrects
 any DOM drift if a concurrent request lands.
 
-## Dev workflow
-
-For production builds, pin the published Iridium module:
-
-```sh
-go get -u github.com/iridiumgo/iridium@latest
-```
-
 ## Status
 
 v1 — single layout, session-backed by default, no per-block custom state.
@@ -137,5 +129,4 @@ Multi-layout tabs and per-block stores are deferred features from the
 Filament original; both can land later without API breaks.
 
 ## License
-
 MIT

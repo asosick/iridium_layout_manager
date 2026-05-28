@@ -1,9 +1,17 @@
 package views
 
-import "strconv"
+import (
+    "strconv"
+
+    "github.com/iridiumgo/iridium-icons/icon/icons"
+)
 
 // Block renders one placed block, including its edit controls (hidden in
 // view mode). Drag handle, remove, +/- resize, full-width toggle.
+//
+// All icon-only controls use iridium-icons so they theme with the host
+// (including dark mode) and the chrome buttons use iridium's btn-* classes
+// for the same reason.
 templ Block(d *PageData, b BlockData) {
     <div
         class="lm-block"
@@ -17,41 +25,54 @@ templ Block(d *PageData, b BlockData) {
         <div class="lm-block-controls" x-show="editMode" x-cloak>
             <button
                 type="button"
-                class="lm-block-btn"
-                data-variant="danger"
+                class="lm-block-btn lm-block-btn-danger"
+                aria-label="Remove block"
                 title="Remove"
                 hx-post={ b.RemoveURL }
                 hx-target="[data-lm-grid]"
                 hx-swap="outerHTML"
-            >×</button>
+            >
+                @icons.Trash.Component()
+            </button>
             if d.AllowResize {
                 <button
                     type="button"
                     class="lm-block-btn"
+                    aria-label="Decrease size"
                     title="Decrease size"
                     hx-post={ b.ResizeDecURL }
                     hx-target="[data-lm-grid]"
                     hx-swap="outerHTML"
-                >−</button>
+                >
+                    @icons.Minus.Component()
+                </button>
                 <button
                     type="button"
                     class="lm-block-btn"
+                    aria-label="Increase size"
                     title="Increase size"
                     hx-post={ b.ResizeIncURL }
                     hx-target="[data-lm-grid]"
                     hx-swap="outerHTML"
-                >+</button>
+                >
+                    @icons.Plus.Component()
+                </button>
                 <button
                     type="button"
                     class="lm-block-btn"
+                    aria-label="Toggle full width"
                     title="Toggle full width"
                     hx-post={ b.ResizeToggleURL }
                     hx-target="[data-lm-grid]"
                     hx-swap="outerHTML"
-                >⇔</button>
+                >
+                    @icons.Maximize.Component()
+                </button>
             }
             if d.AllowReorder {
-                <span class="lm-block-handle" title="Drag to reorder">⠿</span>
+                <span class="lm-block-handle" aria-label="Drag to reorder" title="Drag to reorder">
+                    @icons.GripVertical.Component()
+                </span>
             }
         </div>
         <div class="lm-block-content">

@@ -3,6 +3,8 @@ package views
 import (
     "fmt"
     "net/http"
+
+    "github.com/iridiumgo/iridium-icons/icon/icons"
 )
 
 // PageData carries everything the page template needs at render time.
@@ -77,8 +79,12 @@ templ LayoutManagerComponent(d *PageData) {
     </div>
 }
 
-// Toolbar renders the heading + edit-mode controls. The add / save / lock
-// controls are gated client-side on editMode for snappy toggling.
+// Toolbar renders the heading + edit-mode controls.
+//
+// The controls piggy-back on iridium's existing button classes (btn-primary,
+// btn-outline, etc.) and iridium-icons so they pick up the host theme — dark
+// mode, focus rings, hover states, the lot — without us re-implementing any
+// of it. Class names are the same ones iridium's own templates use.
 templ Toolbar(d *PageData) {
     <div class="lm-toolbar">
         <h1 class="lm-heading">{ d.Heading }</h1>
@@ -91,28 +97,38 @@ templ Toolbar(d *PageData) {
                         hx-swap="outerHTML"
                         class="lm-controls"
                     >
-                        <select name="type" data-lm-type-select x-model="selectedType">
+                        <select name="type" data-lm-type-select x-model="selectedType" class="lm-select">
                             for _, opt := range d.AddOptions {
                                 <option value={ opt.Key }>{ opt.Label }</option>
                             }
                         </select>
-                        <button type="submit" class="lm-btn lm-btn-primary">+ Add</button>
+                        <button type="submit" class="btn-primary lm-icon-btn">
+                            @icons.Plus.Component()
+                            <span>Add</span>
+                        </button>
                     </form>
                 }
                 <button
                     type="button"
-                    class="lm-btn"
+                    class="btn-outline lm-icon-btn"
                     hx-post={ d.URLs.Save }
                     hx-target="[data-lm-grid]"
                     hx-swap="outerHTML"
                 >
-                    Save
+                    @icons.Save.Component()
+                    <span>Save</span>
                 </button>
             </div>
             if d.ShowLockButton {
-                <button type="button" class="lm-btn" @click="toggleEdit">
-                    <span x-show="!editMode">🔒 Edit</span>
-                    <span x-show="editMode" x-cloak>🔓 Done</span>
+                <button type="button" class="btn-outline lm-icon-btn" @click="toggleEdit">
+                    <span x-show="!editMode" class="lm-icon-btn">
+                        @icons.Lock.Component()
+                        <span>Edit</span>
+                    </span>
+                    <span x-show="editMode" x-cloak class="lm-icon-btn">
+                        @icons.LockOpen.Component()
+                        <span>Done</span>
+                    </span>
                 </button>
             }
         </div>

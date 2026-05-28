@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+	"github.com/iridiumgo/iridium-icons/icon"
+	"github.com/iridiumgo/iridium/core/action/traits"
 	"github.com/iridiumgo/iridium/core/page/panel"
 	"github.com/iridiumgo/iridium/network/wrapper"
 )
@@ -123,6 +125,44 @@ func (p *LayoutManagerPage) LoadHook(fn LoadHook) *LayoutManagerPage {
 	return p
 }
 
+// --- Navigation wrappers ----------------------------------------------------
+//
+// The embedded *CustomPanelPage already exposes NavigationIcon / Label /
+// Group / Order, but they return *CustomPanelPage which breaks fluent chaining
+// from a LayoutManagerPage. These wrappers delegate to the embedded methods
+// and return *LayoutManagerPage so you can keep the chain:
+//
+//	NewLayoutManagerPage("Dashboard", "dashboard").
+//	    NavigationIcon(icons.LayoutDashboard).
+//	    NavigationGroup("Overview").
+//	    Blocks(...).
+//	    GridColumns(3)
+
+// NavigationLabel overrides the label shown in the sidebar (defaults to the
+// page name).
+func (p *LayoutManagerPage) NavigationLabel(label string) *LayoutManagerPage {
+	p.CustomPanelPage.NavigationLabel(label)
+	return p
+}
+
+// NavigationGroup places this page under a named group in the sidebar.
+func (p *LayoutManagerPage) NavigationGroup(group string) *LayoutManagerPage {
+	p.CustomPanelPage.NavigationGroup(group)
+	return p
+}
+
+// NavigationIcon sets the sidebar icon for this page.
+func (p *LayoutManagerPage) NavigationIcon(ic *icon.Icon) *LayoutManagerPage {
+	p.CustomPanelPage.NavigationIcon(ic)
+	return p
+}
+
+// NavigationOrder pins the page's sidebar position (lower = earlier).
+func (p *LayoutManagerPage) NavigationOrder(order int) *LayoutManagerPage {
+	p.CustomPanelPage.NavigationOrder(order)
+	return p
+}
+
 // --- IPage ------------------------------------------------------------------
 
 // GetComponent is called per request to render the page. We construct a fresh
@@ -152,6 +192,15 @@ func (p *LayoutManagerPage) GetComponent(w http.ResponseWriter, r *http.Request)
 // so the page handler uses *our* GetComponent (the embedded type's
 // RegisterRoutes captures its own method, missing our dynamic-content
 // override).
+//
+// Widget routes are registered exactly the way iridium's PanelPageResolvable
+// does it (see panel_page.go RegisterWidgets): each widget's slug is baked
+// with the page slug, its Actionable trait is hung off the page's Carrier so
+// nested action routes (table modals, search/filter endpoints, row actions)
+// get registered, and routes go on the parent-scoped mux (NOT pre-prefixed
+// with the page slug) since the slug is now part of the widget's identity.
+// Skipping any one of those steps breaks modals / search / filters — which
+// is why table widgets were previously broken.
 func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 	scoped := p.GetPageMux(mux)
 	pageScoped := scoped
@@ -166,18 +215,33 @@ func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 	for _, sub := range p.GetSubPages() {
 		sub.RegisterRoutes(scoped)
 	}
-	p.RegisterCarrier(scoped)
 
-	// Wire any widget blocks' own routes (e.g. a chart widget's data route).
+	// Wire each widget block exactly like PanelPageResolvable.RegisterWidgets:
+	// nest the widget under the page slug, hook its actionable into the
+	// Carrier (so nested action routes register), then register the widget's
+	// own routes on the parent-scoped mux.
 	for _, b := range p.blocks {
-		if wb, ok := b.(*widgetBlock); ok && wb.w != nil {
-			wb.w.RegisterRoutes(pageScoped)
+		wb, ok := b.(*widgetBlock)
+		if !ok || wb.w == nil {
+			continue
 		}
+		wb.w.SetSlug(p.SlugStr + wb.w.GetSlug())
+		if aw, ok := wb.w.(interface{ GetActionable() *traits.Actionable }); ok {
+			p.GetCarrier().PrefixedSubActionable(wb.w.GetSlug(), aw.GetActionable())
+		}
+		wb.w.RegisterRoutes(scoped)
 	}
 
-	// Plugin htmx endpoints + embedded static assets.
+	// Plugin htmx endpoints + embedded static assets — these live under the
+	// page slug, so they go on the pageScoped (prefix) mux.
 	p.registerLayoutRoutes(pageScoped)
 	p.registerAssetRoutes(pageScoped)
+
+	// MUST be registered AFTER widget actionables have been hooked into the
+	// Carrier — RegisterCarrier walks the Carrier graph once and registers
+	// every captured action route on the parent-scoped mux. This is what
+	// makes table modals / search / filter / row-action routes light up.
+	p.RegisterCarrier(scoped)
 }
 
 // --- helpers ----------------------------------------------------------------

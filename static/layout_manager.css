@@ -1,6 +1,12 @@
 /* Iridium Layout Manager — block grid + edit affordances.
-   Kept self-contained so the plugin works without depending on host CSS.
-   Class names are namespaced ".lm-" to avoid colliding with iridium's own. */
+   This file no longer ships its own button styles: it piggy-backs on
+   iridium's existing .btn-* classes (btn-primary, btn-outline, etc.) so we
+   inherit the host's theme, dark mode, focus rings, hover transitions, the
+   whole lot. The only custom styling here is layout (grid, block, drag
+   handle) and an "icon-button" helper so an iridium button + icon + label
+   line up nicely. All colour references use iridium's CSS custom properties
+   (--color-border, --color-background, --color-muted, --color-primary, etc.)
+   so they flip with the host theme. */
 
 .lm-page {
     display: flex;
@@ -21,6 +27,7 @@
     font-size: 1.5rem;
     font-weight: 700;
     margin: 0;
+    color: var(--color-foreground);
 }
 
 .lm-controls {
@@ -30,46 +37,36 @@
     flex-wrap: wrap;
 }
 
-.lm-controls > select {
+/* Make iridium btn-* buttons render their icon + label inline cleanly. The
+   buttons themselves come from iridium's stylesheet — we just lay out their
+   children. */
+.lm-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.lm-icon-btn svg {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+}
+
+/* The "Add" dropdown — match iridium's input look. Reused tokens from the
+   host theme so dark mode just works. */
+.lm-select {
     padding: 0.375rem 0.5rem;
-    border: 1px solid var(--color-border, #e5e7eb);
-    border-radius: 0.375rem;
-    background: var(--color-background, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius, 0.375rem);
+    background: var(--color-background);
+    color: var(--color-foreground);
     font-size: 0.875rem;
     min-width: 12rem;
 }
 
-.lm-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 0.375rem;
-    border: 1px solid var(--color-border, #e5e7eb);
-    background: var(--color-background, #fff);
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: background-color 120ms ease;
-}
-
-.lm-btn:hover {
-    background: var(--color-muted, #f3f4f6);
-}
-
-.lm-btn-primary {
-    background: var(--color-primary, #2563eb);
-    color: #fff;
-    border-color: transparent;
-}
-
-.lm-btn-primary:hover {
-    filter: brightness(1.05);
-}
-
-.lm-btn-danger {
-    background: var(--color-destructive, #dc2626);
-    color: #fff;
-    border-color: transparent;
+.lm-select:focus-visible {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 1px;
 }
 
 /* Grid container — column count provided inline via --lm-cols so the host
@@ -87,9 +84,10 @@
 .lm-block {
     grid-column: span var(--lm-block-cols, 1) / span var(--lm-block-cols, 1);
     padding: 0.5rem;
-    border: 1px solid var(--color-border, #e5e7eb);
-    border-radius: 0.5rem;
-    background: var(--color-background, #fff);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius, 0.5rem);
+    background: var(--color-background);
+    color: var(--color-foreground);
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -109,27 +107,65 @@
 .lm-block[data-cols="11"] { --lm-block-cols: 11; }
 .lm-block[data-cols="12"] { --lm-block-cols: 12; }
 
-/* Per-block edit controls. Hidden in view mode; revealed via the page's
-   x-show="editMode" wrapper. */
+/* Per-block edit controls. Hidden in view mode via Alpine x-show. */
 .lm-block-controls {
     display: flex;
     align-items: center;
     gap: 0.25rem;
     padding: 0.25rem 0.5rem;
-    border-bottom: 1px solid var(--color-border, #e5e7eb);
+    border-bottom: 1px solid var(--color-border);
     margin: -0.5rem -0.5rem 0;
-    background: var(--color-muted, #f9fafb);
-    border-top-left-radius: 0.5rem;
-    border-top-right-radius: 0.5rem;
+    background: var(--color-muted, transparent);
+    border-top-left-radius: var(--radius, 0.5rem);
+    border-top-right-radius: var(--radius, 0.5rem);
+}
+
+/* Icon-only ghost buttons for per-block actions. Coloured by iridium's
+   muted-foreground / foreground tokens so they read correctly in either
+   theme. */
+.lm-block-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: var(--radius, 0.25rem);
+    color: var(--color-muted-foreground, var(--color-foreground));
+    line-height: 1;
+}
+
+.lm-block-btn svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.lm-block-btn:hover {
+    background: var(--color-border);
+    color: var(--color-foreground);
+}
+
+.lm-block-btn-danger:hover {
+    background: color-mix(in srgb, var(--color-destructive) 15%, transparent);
+    color: var(--color-destructive);
 }
 
 .lm-block-handle {
     margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    border-radius: var(--radius, 0.25rem);
+    color: var(--color-muted-foreground, var(--color-foreground));
     cursor: grab;
     user-select: none;
-    font-size: 1rem;
-    padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+}
+
+.lm-block-handle svg {
+    width: 1rem;
+    height: 1rem;
 }
 
 .lm-block-handle:active {
@@ -137,36 +173,18 @@
 }
 
 .lm-block-handle:hover {
-    background: var(--color-border, #e5e7eb);
-}
-
-.lm-block-btn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    padding: 0.125rem 0.375rem;
-    font-size: 0.95rem;
-    border-radius: 0.25rem;
-    line-height: 1;
-}
-
-.lm-block-btn:hover {
-    background: var(--color-border, #e5e7eb);
-}
-
-.lm-block-btn[data-variant="danger"]:hover {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: var(--color-border);
+    color: var(--color-foreground);
 }
 
 /* Empty state when the user hasn't added any blocks yet. */
 .lm-empty {
     grid-column: 1 / -1;
-    border: 2px dashed var(--color-border, #e5e7eb);
-    border-radius: 0.5rem;
+    border: 2px dashed var(--color-border);
+    border-radius: var(--radius, 0.5rem);
     padding: 2rem 1rem;
     text-align: center;
-    color: var(--color-muted-foreground, #6b7280);
+    color: var(--color-muted-foreground, var(--color-foreground));
     font-size: 0.9rem;
 }
 

@@ -62,6 +62,31 @@
                     // copy so order, cols, and any newly-resolved widgets
                     // come from the source of truth.
                     grid.outerHTML = html;
+
+                    // CRITICAL: after a raw outerHTML swap, htmx and Alpine
+                    // don't automatically know about the new DOM. Without
+                    // re-processing, the freshly-rendered ×/+/− buttons
+                    // don't get bound to htmx — so the FIRST click hits the
+                    // stale (pre-reorder) button still wired up, which is
+                    // why resizing widget A after a swap appeared to affect
+                    // widget B for one click. We rescan both subsystems
+                    // against the new grid so all the hx-post URLs the
+                    // server just rendered fire correctly.
+                    const newGrid = document.querySelector('[data-lm-grid]');
+                    if (!newGrid) return;
+                    if (window.htmx && typeof window.htmx.process === 'function') {
+                        try { window.htmx.process(newGrid); } catch (e) {
+                            console.error('[layoutmgr] htmx.process failed', e);
+                        }
+                    }
+                    if (window.Alpine && typeof window.Alpine.initTree === 'function') {
+                        try { window.Alpine.initTree(newGrid); } catch (e) {
+                            // Re-initing a tree already initialised by Alpine
+                            // when x-data was processed via the parent is
+                            // usually harmless; log and continue.
+                            console.warn('[layoutmgr] Alpine.initTree warn', e);
+                        }
+                    }
                 })
                 .catch(err => console.error('[layoutmgr] reorder failed', err));
         },

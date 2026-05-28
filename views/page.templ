@@ -56,15 +56,24 @@ type BlockData struct {
 
 // LayoutManagerComponent is the root component — the toolbar + grid. Rendered
 // inside the panel chrome by iridium's CustomPanelPage.
+//
+// Asset order matters: the <script> is intentionally rendered BEFORE the
+// x-data element, and intentionally NOT deferred. Iridium loads its own
+// Alpine bundle as a type="module" script in <head>, which defers until
+// DOMContentLoaded. Our body script (no defer) runs synchronously during
+// parsing — before DOMContentLoaded — so it can register an alpine:init
+// listener before iridium's module fires Alpine.start(). That listener then
+// registers the layout_manager data component before Alpine walks the DOM,
+// avoiding the "layout_manager is not defined" race we'd otherwise hit.
 templ LayoutManagerComponent(d *PageData) {
     <link rel="stylesheet" href={ d.URLs.CSS }/>
+    <script src={ d.URLs.JS }></script>
     <div
         class="lm-page"
         x-data="layout_manager"
     >
         @Toolbar(d)
         @Grid(d)
-        <script src={ d.URLs.JS } defer></script>
     </div>
 }
 

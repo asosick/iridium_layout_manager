@@ -83,7 +83,7 @@ func Grid(d *PageData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if len(d.Blocks) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<div class=\"lm-empty\">No blocks yet. Click 🔒 Edit and pick a block to add.</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<div class=\"lm-empty\">No blocks yet. Click 🔒 Edit and pick a block to add. Hello</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

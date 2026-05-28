@@ -7,9 +7,14 @@ page, drag-to-reorder, resize their column span, and save the result. Layouts
 persist per-user (cookie/session by default; pluggable for DB-backed storage).
 
 Ported from the [FilamentPHP Filament Layout Manager](https://github.com/asosick/filament-layout-manager)
-plugin to Iridium's HTMX + Alpine + templ stack. Drag-to-reorder is powered by
-the Alpine Sort plugin that Iridium already bundles, so the plugin ships only
+plugin to Iridium's HTMX + Alpine + templ stack. The port was done essentially 100% by claude/codex partly as an
+exercise to see how well it handles direct ports.
+
+Drag-to-reorder is powered by the Alpine Sort plugin that Iridium already bundles, so the plugin ships only
 a tiny JS helper and a CSS file.
+
+This plugin can serve as a starting point for understanding how to build your own Iridium plugin.
+The beauty of Go is its duck typing lets you mix and match your custom code into Iridium fairly easily.
 
 ## Install
 
@@ -119,16 +124,11 @@ any DOM drift if a concurrent request lands.
 
 ## Dev workflow
 
-This module ships with a local `replace` directive pointing at a checkout of
-iridium-core for development:
+For production builds, pin the published Iridium module:
 
-```go
-// go.mod
-replace github.com/iridiumgo/iridium => /Users/asosick/dev/iridium/iridium_forge/iridium-core
+```sh
+go get -u github.com/iridiumgo/iridium@latest
 ```
-
-For production, comment that line out and run `go get -u github.com/iridiumgo/iridium`
-to pull the published version.
 
 ## Status
 

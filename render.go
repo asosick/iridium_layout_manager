@@ -44,8 +44,8 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 			Resize:  prefix + routeResize,
 			Reorder: prefix + routeReorder,
 			Save:    prefix + routeSave,
-			CSS:     p.assetURL(r, "./layout_manager.css"),
-			JS:      p.assetURL(r, "./layout_manager.js"),
+			CSS:     p.assetURL(r, "layout_manager.css"),
+			JS:      p.assetURL(r, "layout_manager.js"),
 		},
 	}
 

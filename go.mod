@@ -2,11 +2,6 @@ module github.com/asosick/iridium_layout_manager
 
 go 1.26.3
 
-// Local development override — point at the iridium-core checkout so changes
-// flow through without a tag bump. Remove for production builds against a
-// pinned version.
-//replace github.com/iridiumgo/iridium => /Users/asosick/dev/iridium/iridium_forge/iridium-core
-
 require (
 	github.com/a-h/templ v0.3.1020
 	github.com/google/uuid v1.6.0

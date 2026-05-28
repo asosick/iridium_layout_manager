@@ -154,6 +154,10 @@ func (p *LayoutManagerPage) GetComponent(w http.ResponseWriter, r *http.Request)
 // override).
 func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 	scoped := p.GetPageMux(mux)
+	pageScoped := scoped
+	if p.SlugStr != "" {
+		pageScoped = wrapper.NewPrefixMux(scoped, p.SlugStr)
+	}
 
 	// Main GET — uses our override that injects per-request content.
 	p.BasePage.RegisterRoutes(scoped, p.GetComponent)
@@ -167,13 +171,13 @@ func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 	// Wire any widget blocks' own routes (e.g. a chart widget's data route).
 	for _, b := range p.blocks {
 		if wb, ok := b.(*widgetBlock); ok && wb.w != nil {
-			wb.w.RegisterRoutes(scoped)
+			wb.w.RegisterRoutes(pageScoped)
 		}
 	}
 
 	// Plugin htmx endpoints + embedded static assets.
-	p.registerLayoutRoutes(scoped)
-	p.registerAssetRoutes(scoped)
+	p.registerLayoutRoutes(pageScoped)
+	p.registerAssetRoutes(pageScoped)
 }
 
 // --- helpers ----------------------------------------------------------------

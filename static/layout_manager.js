@@ -104,16 +104,48 @@
             const url = grid.dataset.reorderUrl;
             if (!url) return;
 
+            // Iridium enforces CSRF on every mutating request: a POST without a
+            // valid X-CSRF-Token is rejected with 403. htmx-driven mutations
+            // (add/remove/resize) get the token injected automatically via the
+            // body's :hx-headers binding, but this is a RAW fetch — htmx isn't
+            // involved — so we must read the current token off the Alpine
+            // 'security' store and send it ourselves. Without this the reorder
+            // POST is silently rejected: Alpine's sort has already moved the DOM
+            // visually, so the new order LOOKS applied, but nothing persists and
+            // revisiting the page shows the old order. That was the "layout not
+            // placed back in the same spots" bug.
+            const security = (window.Alpine && typeof window.Alpine.store === 'function')
+                ? window.Alpine.store('security')
+                : null;
+            const headers = {
+                'Content-Type': 'application/json',
+                'HX-Request': 'true',
+            };
+            if (security && security.csrf) {
+                headers['X-CSRF-Token'] = security.csrf;
+            }
+
             fetch(url, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'HX-Request': 'true',
-                },
+                headers,
                 credentials: 'same-origin',
                 body: JSON.stringify({ order }),
             })
-                .then(r => r.text())
+                .then(r => {
+                    // Iridium ROTATES the CSRF token on every successful mutating
+                    // request and returns the fresh one in the response header.
+                    // htmx normally feeds that back into the security store (via
+                    // its htmx:afterRequest listener), but a raw fetch bypasses
+                    // that — so we update the store ourselves. Skipping this would
+                    // leave the store holding a now-stale token and 403 the NEXT
+                    // htmx POST (add/remove/resize) on the page.
+                    const t = r.headers.get('X-CSRF-Token');
+                    if (t && security) security.csrf = t;
+                    if (!r.ok) {
+                        throw new Error('[layoutmgr] reorder rejected: ' + r.status);
+                    }
+                    return r.text();
+                })
                 .then(html => {
                     // Replace the grid with the server's freshly-rendered
                     // copy so order, cols, and any newly-resolved widgets

@@ -246,15 +246,50 @@ func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 
 // --- helpers ----------------------------------------------------------------
 
-// currentState loads from the configured hook and normalises the result
-// (clamping column spans to the current GridColumns setting, in case the
-// admin lowered the grid after layouts were saved).
+// sessionKey is the key under which this page's in-progress working buffer is
+// stored in the gorilla session.
+func (p *LayoutManagerPage) sessionKey() string {
+	return "layout:" + p.SlugStr
+}
+
+// currentState returns the page's in-progress working buffer. The session is
+// the single source of truth for edits-in-flight: every mutation (add, remove,
+// resize, reorder) writes here, and only the explicit Save button flushes it
+// out to the durable loadHook/saveHook store.
+//
+// On the very first request of a session we seed the buffer from the durable
+// loadHook so the user starts from their saved layout. An init marker ensures
+// we only seed once — otherwise deleting every block would make the buffer
+// look "empty/unseeded" and the saved blocks would reappear on the next render.
 func (p *LayoutManagerPage) currentState(r *http.Request) LayoutState {
+	key := p.sessionKey()
+
+	inited, err := sessionInitialized(r, key)
+	if err == nil && inited {
+		// Buffer already seeded — read the working copy.
+		if state, lerr := sessionLoad(key)(r); lerr == nil {
+			return p.normalize(state)
+		}
+	}
+
+	// First load this session: seed the buffer from the durable store.
 	state, err := p.loadHook(r)
 	if err != nil {
 		// Soft-fail to an empty state so the page still renders.
 		state = LayoutState{}
 	}
+	state = p.normalize(state)
+	// Persist the seed into the working buffer and mark it initialized so
+	// subsequent renders/mutations read the buffer, not the durable store.
+	if serr := sessionSave(key)(r, state); serr == nil {
+		_ = markSessionInitialized(r, key)
+	}
+	return state
+}
+
+// normalize clamps each block's column span to the current GridColumns setting
+// (in case the admin lowered the grid after layouts were saved).
+func (p *LayoutManagerPage) normalize(state LayoutState) LayoutState {
 	for i := range state.Blocks {
 		state.Blocks[i].Cols = clampCols(state.Blocks[i].Cols, p.gridCols)
 	}

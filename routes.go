@@ -189,10 +189,15 @@ func (p *LayoutManagerPage) persistAndRender(w http.ResponseWriter, r *http.Requ
 		state.Blocks[i].Cols = clampCols(state.Blocks[i].Cols, p.gridCols)
 	}
 
-	// Always persist to the in-session store so the working view survives
-	// page reloads. The custom SaveHook is reserved for explicit Save clicks.
-	sessionKey := "layout:" + p.SlugStr
-	_ = sessionSave(sessionKey)(r, state)
+	// Always persist to the in-session working buffer so edits-in-flight
+	// survive page reloads. The custom SaveHook is reserved for explicit Save
+	// clicks (handleSave flushes this buffer out to it). Mark the buffer
+	// initialized so currentState reads it back rather than re-seeding from
+	// the durable store.
+	key := p.sessionKey()
+	if err := sessionSave(key)(r, state); err == nil {
+		_ = markSessionInitialized(r, key)
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := p.renderGrid(w, r, state).Render(r.Context(), w); err != nil {

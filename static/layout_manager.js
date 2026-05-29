@@ -22,11 +22,68 @@
         // Mirrors the first <option> by default; the form posts the bound
         // value, so this just keeps the visible select state in sync.
         selectedType: '',
+        // Which page (layout) is currently shown. Drives the selector-button
+        // highlight and is posted (via the hidden "layout" input) on Add.
+        currentLayout: 0,
+        // Total customizable pages — used to bound the cmd/ctrl+N hotkeys.
+        layoutCount: 1,
+        // Endpoint the grid is swapped from when switching pages.
+        selectUrl: '',
+        // Bound document keydown handler, kept so we can detach on destroy.
+        _hotkeyHandler: null,
 
         init() {
             const select = this.$el.querySelector('[data-lm-type-select]');
             if (select && select.options.length > 0) {
                 this.selectedType = select.options[0].value;
+            }
+
+            // Read multi-page config off the root element's data-* attributes.
+            const root = this.$el;
+            this.selectUrl = root.dataset.lmSelectUrl || '';
+            this.layoutCount = parseInt(root.dataset.lmLayoutCount || '1', 10) || 1;
+            this.currentLayout = parseInt(root.dataset.lmCurrentLayout || '0', 10) || 0;
+
+            // cmd/ctrl + 1..9 switches pages (matches the Filament original).
+            this._hotkeyHandler = (e) => this.onHotkey(e);
+            document.addEventListener('keydown', this._hotkeyHandler);
+        },
+
+        destroy() {
+            if (this._hotkeyHandler) {
+                document.removeEventListener('keydown', this._hotkeyHandler);
+                this._hotkeyHandler = null;
+            }
+        },
+
+        // onHotkey switches pages on (cmd|ctrl)+N. Ignored when N is out of
+        // range or when there's only one page. We preventDefault so the
+        // page-switch wins even though some browsers map cmd+N to tab switching.
+        onHotkey(e) {
+            if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+            if (this.layoutCount <= 1) return;
+            const n = parseInt(e.key, 10);
+            if (isNaN(n) || n < 1 || n > this.layoutCount) return;
+            e.preventDefault();
+            this.selectLayout(n - 1);
+        },
+
+        // selectLayout swaps the grid to the requested page and updates the
+        // active-button highlight. The server re-renders the grid (and OOB-
+        // refreshes the selector strip) for that layout, keeping its per-block
+        // mutation URLs correct.
+        selectLayout(i) {
+            this.currentLayout = i;
+            if (!this.selectUrl || !window.htmx) return;
+            const grid = this.$root.querySelector('[data-lm-grid]');
+            if (!grid) return;
+            try {
+                window.htmx.ajax('GET', this.selectUrl + '?layout=' + i, {
+                    target: grid,
+                    swap: 'outerHTML',
+                });
+            } catch (err) {
+                console.error('[layoutmgr] selectLayout failed', err);
             }
         },
 

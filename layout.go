@@ -5,8 +5,12 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/iridiumgo/iridium-icons/icon"
+	"github.com/iridiumgo/iridium/core/action/actions"
 	"github.com/iridiumgo/iridium/core/action/traits"
+	"github.com/iridiumgo/iridium/core/context/ctxPanel"
+	"github.com/iridiumgo/iridium/core/enum"
 	"github.com/iridiumgo/iridium/core/page/panel"
+	"github.com/iridiumgo/iridium/core/widget"
 	"github.com/iridiumgo/iridium/network/wrapper"
 )
 
@@ -25,7 +29,7 @@ type LayoutManagerPage struct {
 
 	blocks        []BlockSpec
 	gridCols      int
-	heading       string
+	layoutCount   int
 	showLockBtn   bool
 	saveHook      SaveHook
 	loadHook      LoadHook
@@ -46,13 +50,17 @@ type LayoutManagerPage struct {
 //   - Persistence = per-user session
 func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 	cpp := panel.NewCustomPanelPage(name, slug)
+	// Render the page name as the panel chrome's title (the same heading every
+	// other panel page shows at the top). The plugin no longer draws its own
+	// heading inside the content, so this is the single source for the title.
+	cpp.Title(name)
 	p := &LayoutManagerPage{
 		CustomPanelPage: cpp,
 		gridCols:        2,
+		layoutCount:     3,
 		showLockBtn:     true,
 		allowReorder:    true,
 		allowResize:     true,
-		heading:         name,
 	}
 	// Default persistence: per-page session key.
 	sessionKey := "layout:" + cpp.SlugStr
@@ -80,9 +88,21 @@ func (p *LayoutManagerPage) GridColumns(n int) *LayoutManagerPage {
 	return p
 }
 
-// Heading overrides the H1 shown above the grid (defaults to the page name).
+// LayoutCount sets how many separate pages (layouts) the user can customize and
+// flip between with the numbered selector buttons / cmd+N hotkeys (default 3).
+// Values < 1 are clamped to 1 (single-page behaviour).
+func (p *LayoutManagerPage) LayoutCount(n int) *LayoutManagerPage {
+	if n < 1 {
+		n = 1
+	}
+	p.layoutCount = n
+	return p
+}
+
+// Heading overrides the page title shown at the top of the page (defaults to
+// the page name). Alias for Title — kept for back-compat.
 func (p *LayoutManagerPage) Heading(h string) *LayoutManagerPage {
-	p.heading = h
+	p.CustomPanelPage.Title(h)
 	return p
 }
 
@@ -160,6 +180,136 @@ func (p *LayoutManagerPage) NavigationIcon(ic *icon.Icon) *LayoutManagerPage {
 // NavigationOrder pins the page's sidebar position (lower = earlier).
 func (p *LayoutManagerPage) NavigationOrder(order int) *LayoutManagerPage {
 	p.CustomPanelPage.NavigationOrder(order)
+	return p
+}
+
+// NavigationHidden hides this page from the sidebar (still reachable + shown
+// in the sub-page tab strip).
+func (p *LayoutManagerPage) NavigationHidden() *LayoutManagerPage {
+	p.CustomPanelPage.NavigationHidden()
+	return p
+}
+
+// NavigationTabHidden hides this page from the sub-page tab strip (still shown
+// in the sidebar).
+func (p *LayoutManagerPage) NavigationTabHidden() *LayoutManagerPage {
+	p.CustomPanelPage.NavigationTabHidden()
+	return p
+}
+
+// --- Panel-page builder wrappers --------------------------------------------
+//
+// The embedded *CustomPanelPage exposes these, but they return
+// *CustomPanelPage which breaks fluent chaining from a *LayoutManagerPage.
+// Each wrapper delegates to the embedded method and returns *LayoutManagerPage
+// so the whole configuration can be written as one chain. New methods added to
+// CustomPanelPage should be mirrored here.
+
+// Title sets the page title shown at the top of the page (defaults to name).
+func (p *LayoutManagerPage) Title(value string) *LayoutManagerPage {
+	p.CustomPanelPage.Title(value)
+	return p
+}
+
+// TitleFn is a callback alias for Title.
+func (p *LayoutManagerPage) TitleFn(fn func(ctx *ctxPanel.PanelPage) string) *LayoutManagerPage {
+	p.CustomPanelPage.TitleFn(fn)
+	return p
+}
+
+// Description sets the descriptive subtitle shown beneath the title.
+func (p *LayoutManagerPage) Description(value string) *LayoutManagerPage {
+	p.CustomPanelPage.Description(value)
+	return p
+}
+
+// DescriptionFn is a callback alias for Description.
+func (p *LayoutManagerPage) DescriptionFn(fn func(ctx *ctxPanel.PanelPage) string) *LayoutManagerPage {
+	p.CustomPanelPage.DescriptionFn(fn)
+	return p
+}
+
+// ContentSize sets the page content width (see enum.PageSize).
+func (p *LayoutManagerPage) ContentSize(value enum.PageSize) *LayoutManagerPage {
+	p.CustomPanelPage.ContentSize(value)
+	return p
+}
+
+// ContentSizeFn is a callback alias for ContentSize.
+func (p *LayoutManagerPage) ContentSizeFn(fn func(ctx *ctxPanel.PanelPage) enum.PageSize) *LayoutManagerPage {
+	p.CustomPanelPage.ContentSizeFn(fn)
+	return p
+}
+
+// HasBreadCrumbs enables breadcrumbs for the page.
+func (p *LayoutManagerPage) HasBreadCrumbs() *LayoutManagerPage {
+	p.CustomPanelPage.HasBreadCrumbs()
+	return p
+}
+
+// HasBreadCrumbsFn is a callback alias for HasBreadCrumbs.
+func (p *LayoutManagerPage) HasBreadCrumbsFn(fn func(ctx *ctxPanel.PanelPage) bool) *LayoutManagerPage {
+	p.CustomPanelPage.HasBreadCrumbsFn(fn)
+	return p
+}
+
+// HeaderWidgets sets widgets rendered in the page header (above the grid).
+func (p *LayoutManagerPage) HeaderWidgets(widgets ...widget.IWidgetResolvable) *LayoutManagerPage {
+	p.CustomPanelPage.HeaderWidgets(widgets...)
+	return p
+}
+
+// FooterWidgets sets widgets rendered in the page footer (below the grid).
+func (p *LayoutManagerPage) FooterWidgets(widgets ...widget.IWidgetResolvable) *LayoutManagerPage {
+	p.CustomPanelPage.FooterWidgets(widgets...)
+	return p
+}
+
+// HeaderActions sets actions rendered on the right of the page header.
+func (p *LayoutManagerPage) HeaderActions(acts ...actions.IActionResolvable[any]) *LayoutManagerPage {
+	p.CustomPanelPage.HeaderActions(acts...)
+	return p
+}
+
+// HeaderColumns sets the per-breakpoint grid column count for header widgets.
+func (p *LayoutManagerPage) HeaderColumns(columns map[string]int) *LayoutManagerPage {
+	p.CustomPanelPage.HeaderColumns(columns)
+	return p
+}
+
+// HeaderColumnsFixed sets the same header column count at every breakpoint.
+func (p *LayoutManagerPage) HeaderColumnsFixed(columns int) *LayoutManagerPage {
+	p.CustomPanelPage.HeaderColumnsFixed(columns)
+	return p
+}
+
+// FooterColumns sets the per-breakpoint grid column count for footer widgets.
+func (p *LayoutManagerPage) FooterColumns(columns map[string]int) *LayoutManagerPage {
+	p.CustomPanelPage.FooterColumns(columns)
+	return p
+}
+
+// FooterColumnsFixed sets the same footer column count at every breakpoint.
+func (p *LayoutManagerPage) FooterColumnsFixed(columns int) *LayoutManagerPage {
+	p.CustomPanelPage.FooterColumnsFixed(columns)
+	return p
+}
+
+// CanAccess installs an auth gate that runs before the page renders.
+func (p *LayoutManagerPage) CanAccess(fn func(ctx *ctxPanel.PanelPage) bool) *LayoutManagerPage {
+	p.CustomPanelPage.CanAccess(fn)
+	return p
+}
+
+// SkipPanel skips the panel middleware defined on your panel.
+func (p *LayoutManagerPage) SkipPanel() *LayoutManagerPage {
+	p.CustomPanelPage.SkipPanel()
+	return p
+}
+
+// SkipAuth skips the auth middleware defined on your panel.
+func (p *LayoutManagerPage) SkipAuth() *LayoutManagerPage {
+	p.CustomPanelPage.SkipAuth()
 	return p
 }
 
@@ -266,8 +416,12 @@ func (p *LayoutManagerPage) currentState(r *http.Request) LayoutState {
 // normalize clamps each block's column span to the current GridColumns setting
 // (in case the admin lowered the grid after layouts were saved).
 func (p *LayoutManagerPage) normalize(state LayoutState) LayoutState {
-	for i := range state.Blocks {
-		state.Blocks[i].Cols = clampCols(state.Blocks[i].Cols, p.gridCols)
+	state.EnsureLayouts(p.layoutCount)
+	for li := range state.Layouts {
+		blocks := state.Layouts[li].Blocks
+		for i := range blocks {
+			blocks[i].Cols = clampCols(blocks[i].Cols, p.gridCols)
+		}
 	}
 	return state
 }

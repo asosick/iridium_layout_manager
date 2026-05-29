@@ -1,5 +1,7 @@
 package layoutmgr
 
+import "encoding/json"
+
 // Block is one placed instance inside the user's layout.
 //
 //   - ID is a stable per-instance identifier (UUID) so the front-end can target
@@ -15,19 +17,103 @@ type Block struct {
 	Cols int    `json:"cols"`
 }
 
-// LayoutState is the full serialized state for one user's layout. v1 keeps a
-// flat list of blocks; multi-layout support would add a slice of these (one
-// per layout tab) — left out of v1 for simplicity per spec.
-type LayoutState struct {
+// Layout is a single customizable page (a "layout" / "view" in the Filament
+// original). Each layout holds its own ordered list of blocks. Users flip
+// between layouts with the numbered selector buttons / cmd+N hotkeys.
+type Layout struct {
 	Blocks []Block `json:"blocks"`
 }
 
-// Find returns the block with the given ID and its index, or (nil, -1) if not
-// present.
-func (s *LayoutState) Find(id string) (*Block, int) {
-	for i := range s.Blocks {
-		if s.Blocks[i].ID == id {
-			return &s.Blocks[i], i
+// LayoutState is the full serialized state for one user. It holds one or more
+// Layouts (pages). v1 stored a flat block list under "blocks"; that legacy
+// shape is migrated transparently into Layouts[0] on load (see UnmarshalJSON).
+type LayoutState struct {
+	Layouts []Layout `json:"layouts"`
+}
+
+// UnmarshalJSON decodes the current ({"layouts":[{"blocks":[...]}]}) shape and
+// transparently migrates the legacy single-layout shape ({"blocks":[...]}) into
+// Layouts[0], so users who saved a layout before multi-page support keep it.
+func (s *LayoutState) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Layouts []Layout `json:"layouts"`
+		Blocks  []Block  `json:"blocks"` // legacy flat field
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	s.Layouts = raw.Layouts
+	if len(s.Layouts) == 0 && len(raw.Blocks) > 0 {
+		s.Layouts = []Layout{{Blocks: raw.Blocks}}
+	}
+	return nil
+}
+
+// EnsureLayouts pads the Layouts slice so it has at least count entries. Used so
+// a user can target any layout index in [0, count) even before they've added
+// anything to it.
+func (s *LayoutState) EnsureLayouts(count int) {
+	if count < 1 {
+		count = 1
+	}
+	for len(s.Layouts) < count {
+		s.Layouts = append(s.Layouts, Layout{})
+	}
+}
+
+// LayoutAt returns a pointer to the layout at index i (creating intermediate
+// layouts as needed up to count). An out-of-range index clamps to 0.
+func (s *LayoutState) LayoutAt(i, count int) *Layout {
+	s.EnsureLayouts(count)
+	if i < 0 || i >= len(s.Layouts) {
+		i = 0
+	}
+	return &s.Layouts[i]
+}
+
+// ContentFlags returns a per-index bool slice of length count, true where the
+// layout at that index has at least one block. Drives the "only show numbers
+// for pages that have content" behaviour in view mode.
+func (s *LayoutState) ContentFlags(count int) []bool {
+	if count < 1 {
+		count = 1
+	}
+	flags := make([]bool, count)
+	for i := 0; i < count && i < len(s.Layouts); i++ {
+		flags[i] = len(s.Layouts[i].Blocks) > 0
+	}
+	return flags
+}
+
+// UsedLayouts counts how many layouts (capped at count) hold at least one
+// block. The selector strip stays hidden in view mode unless this is > 1.
+func (s *LayoutState) UsedLayouts(count int) int {
+	used := 0
+	for _, has := range s.ContentFlags(count) {
+		if has {
+			used++
+		}
+	}
+	return used
+}
+
+// FirstUsedLayout returns the index of the first layout that holds content, or
+// 0 if every layout is empty. Used to focus a sensible default page on load.
+func (s *LayoutState) FirstUsedLayout(count int) int {
+	for i, has := range s.ContentFlags(count) {
+		if has {
+			return i
+		}
+	}
+	return 0
+}
+
+// Find returns the block with the given ID and its index within this layout, or
+// (nil, -1) if not present.
+func (l *Layout) Find(id string) (*Block, int) {
+	for i := range l.Blocks {
+		if l.Blocks[i].ID == id {
+			return &l.Blocks[i], i
 		}
 	}
 	return nil, -1
@@ -35,49 +121,49 @@ func (s *LayoutState) Find(id string) (*Block, int) {
 
 // Remove drops the block with the given ID. Returns true if anything was
 // removed.
-func (s *LayoutState) Remove(id string) bool {
-	_, i := s.Find(id)
+func (l *Layout) Remove(id string) bool {
+	_, i := l.Find(id)
 	if i < 0 {
 		return false
 	}
-	s.Blocks = append(s.Blocks[:i], s.Blocks[i+1:]...)
+	l.Blocks = append(l.Blocks[:i], l.Blocks[i+1:]...)
 	return true
 }
 
 // Reorder reshuffles the blocks to match the given ID order. Unknown IDs are
-// ignored; blocks present in the state but missing from order are dropped to
+// ignored; blocks present in the layout but missing from order are dropped to
 // the end in their original relative order. Returns true if the order changed.
-func (s *LayoutState) Reorder(order []string) bool {
+func (l *Layout) Reorder(order []string) bool {
 	if len(order) == 0 {
 		return false
 	}
-	byID := make(map[string]Block, len(s.Blocks))
-	for _, b := range s.Blocks {
+	byID := make(map[string]Block, len(l.Blocks))
+	for _, b := range l.Blocks {
 		byID[b.ID] = b
 	}
-	out := make([]Block, 0, len(s.Blocks))
-	seen := make(map[string]bool, len(s.Blocks))
+	out := make([]Block, 0, len(l.Blocks))
+	seen := make(map[string]bool, len(l.Blocks))
 	for _, id := range order {
 		if b, ok := byID[id]; ok && !seen[id] {
 			out = append(out, b)
 			seen[id] = true
 		}
 	}
-	for _, b := range s.Blocks {
+	for _, b := range l.Blocks {
 		if !seen[b.ID] {
 			out = append(out, b)
 		}
 	}
-	changed := len(out) != len(s.Blocks)
+	changed := len(out) != len(l.Blocks)
 	if !changed {
 		for i := range out {
-			if out[i].ID != s.Blocks[i].ID {
+			if out[i].ID != l.Blocks[i].ID {
 				changed = true
 				break
 			}
 		}
 	}
-	s.Blocks = out
+	l.Blocks = out
 	return changed
 }
 

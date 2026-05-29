@@ -79,6 +79,7 @@ You can mix them freely in a single `Blocks(...)` call.
 layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     Blocks(...).
     GridColumns(3).            // 1..N column grid
+    LayoutCount(3).            // number of pages the user can flip between (default 3)
     Heading("My Dashboard").   // override the H1
     ShowLockButton(true).      // hide to lock the page in edit mode permanently
     Reorderable(true).         // enable drag-to-reorder
@@ -86,6 +87,15 @@ layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     SaveHook(myDBSave).        // optional — persist to DB on Save click
     LoadHook(myDBLoad)         // optional — load from DB on each render
 ```
+
+### Multiple pages
+
+Each user gets `LayoutCount` separate pages (default 3) to arrange independently.
+Numbered buttons at the top switch between them, and `cmd/ctrl + 1..9` jump
+straight to a page. In edit mode every page number is shown so you can populate
+empty ones; in view mode only pages that actually contain blocks show their
+number (and the strip hides entirely when only one page is in use). All pages
+persist together in a single `LayoutState`.
 
 ### Persistence
 

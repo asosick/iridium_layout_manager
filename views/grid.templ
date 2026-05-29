@@ -18,7 +18,7 @@ templ Grid(d *PageData) {
         class="lm-grid"
         style={ fmt.Sprintf("--lm-cols:%d", d.GridColumns) }
         data-lm-grid
-        data-reorder-url={ d.URLs.Reorder }
+        data-reorder-url={ d.ReorderURL }
         if d.AllowReorder {
             x-sort="handleReorder"
             x-sort:config="{ handle: '.lm-block-handle' }"
@@ -26,7 +26,7 @@ templ Grid(d *PageData) {
     >
         if len(d.Blocks) == 0 {
             <div class="lm-empty">
-                No blocks yet. Click 🔒 Edit and pick a block to add. Hello
+                No blocks yet. Click Edit and pick a block to add.
             </div>
         }
         for _, b := range d.Blocks {

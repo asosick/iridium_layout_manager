@@ -3,6 +3,7 @@ package views
 import (
     "fmt"
     "net/http"
+    "strconv"
 
     "github.com/iridiumgo/iridium-icons/icon/icons"
 )
@@ -10,13 +11,20 @@ import (
 // PageData carries everything the page template needs at render time.
 // Constructed by LayoutManagerPage.renderPage() per request.
 type PageData struct {
-    Heading        string
     GridColumns    int
     Blocks         []BlockData       // currently-placed blocks
     AddOptions     []BlockOption     // dropdown options
     ShowLockButton bool
     AllowReorder   bool
     AllowResize    bool
+    // Multi-layout (multi-page) support.
+    LayoutCount   int    // total customizable pages (>=1)
+    CurrentLayout int    // index of the layout currently rendered
+    LayoutContent []bool // per-index: does layout i hold any blocks?
+    UsedLayouts   int    // count of non-empty layouts
+    // ReorderURL is the per-layout reorder endpoint (carries ?layout=N) the JS
+    // drag handler POSTs to.
+    ReorderURL string
     // URLs are pre-resolved (panel + page prefix already applied) so the
     // template doesn't need to know about iridium's path conventions.
     URLs PageURLs
@@ -33,6 +41,7 @@ type PageURLs struct {
     Remove  string // append ?id=...
     Resize  string // append ?id=...&delta=±1 (or ?cols=N)
     Reorder string
+    Select  string // append ?layout=N — switch displayed layout
     Save    string
     CSS     string
     JS      string
@@ -73,6 +82,9 @@ templ LayoutManagerComponent(d *PageData) {
     <div
         class="lm-page"
         x-data="layout_manager"
+        data-lm-select-url={ d.URLs.Select }
+        data-lm-layout-count={ strconv.Itoa(d.LayoutCount) }
+        data-lm-current-layout={ strconv.Itoa(d.CurrentLayout) }
     >
         @Toolbar(d)
         @Grid(d)
@@ -87,7 +99,7 @@ templ LayoutManagerComponent(d *PageData) {
 // of it. Class names are the same ones iridium's own templates use.
 templ Toolbar(d *PageData) {
     <div class="lm-toolbar">
-        <h1 class="lm-heading">{ d.Heading }</h1>
+        @Selectors(d, false)
         <div class="lm-controls">
             <div x-show="editMode" x-cloak class="lm-controls">
                 if len(d.AddOptions) > 0 {
@@ -97,6 +109,9 @@ templ Toolbar(d *PageData) {
                         hx-swap="outerHTML"
                         class="lm-controls"
                     >
+                        // The layout the new block lands on is whatever the user
+                        // is currently viewing — bound to Alpine's currentLayout.
+                        <input type="hidden" name="layout" x-model="currentLayout"/>
                         <select name="type" data-lm-type-select x-model="selectedType" class="lm-select">
                             for _, opt := range d.AddOptions {
                                 <option value={ opt.Key }>{ opt.Label }</option>
@@ -112,8 +127,7 @@ templ Toolbar(d *PageData) {
                     type="button"
                     class="btn-outline lm-icon-btn"
                     hx-post={ d.URLs.Save }
-                    hx-target="[data-lm-grid]"
-                    hx-swap="outerHTML"
+                    hx-swap="none"
                 >
                     @icons.Save.Component()
                     <span>Save</span>
@@ -133,6 +147,76 @@ templ Toolbar(d *PageData) {
             }
         </div>
     </div>
+}
+
+// Selectors renders the numbered page (layout) selector buttons. Behaviour
+// mirrors the Filament original:
+//
+//   - The whole strip is hidden unless we're editing OR more than one layout
+//     holds content (x-show on the group).
+//   - In edit mode every numbered button shows so the user can populate empty
+//     pages; in view mode only the buttons for pages that actually have content
+//     appear.
+//   - The active page is highlighted (btn-primary), the rest are btn-outline.
+//   - Clicking (or pressing cmd/ctrl+N) calls selectLayout(i), which swaps the
+//     grid via htmx and updates the highlight.
+//
+// When oob is true the strip carries hx-swap-oob so a grid mutation response
+// can refresh the indicators out-of-band (keeps the "only show populated pages"
+// state correct after add/remove without a full reload).
+templ Selectors(d *PageData, oob bool) {
+    if d.LayoutCount > 1 {
+        <div
+            id="lm-selectors"
+            class="lm-selectors"
+            x-show={ selectorGroupShow(d) }
+            x-cloak
+            if oob {
+                hx-swap-oob="true"
+            }
+        >
+            for i := 0; i < d.LayoutCount; i++ {
+                <button
+                    type="button"
+                    x-show={ layoutBtnShow(d, i) }
+                    :class={ layoutBtnClass(i) }
+                    class="lm-layout-btn"
+                    @click={ fmt.Sprintf("selectLayout(%d)", i) }
+                >
+                    { strconv.Itoa(i + 1) }
+                </button>
+            }
+        </div>
+    }
+}
+
+// GridResponse is the htmx response body for a grid mutation: the freshly
+// rendered grid (the primary swap target) plus an out-of-band refresh of the
+// page-selector strip so its "populated pages" indicators stay accurate.
+templ GridResponse(d *PageData) {
+    @Grid(d)
+    @Selectors(d, true)
+}
+
+// selectorGroupShow returns the Alpine x-show expression for the whole selector
+// strip: always while editing, otherwise only when more than one page is used.
+func selectorGroupShow(d *PageData) string {
+    return fmt.Sprintf("editMode || %t", d.UsedLayouts > 1)
+}
+
+// layoutBtnShow returns the x-show expression for a single page button. Pages
+// with content are visible in both modes; empty pages only while editing.
+func layoutBtnShow(d *PageData, i int) string {
+    if i >= 0 && i < len(d.LayoutContent) && d.LayoutContent[i] {
+        return "true"
+    }
+    return "editMode"
+}
+
+// layoutBtnClass returns the :class expression toggling the active page's
+// highlight against Alpine's currentLayout state.
+func layoutBtnClass(i int) string {
+    return fmt.Sprintf("currentLayout === %d ? 'btn-primary' : 'btn-outline'", i)
 }
 
 // gridStyleVar returns an inline style declaration setting the --lm-cols var

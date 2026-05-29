@@ -178,25 +178,20 @@ func (p *LayoutManagerPage) handleSave(w http.ResponseWriter, r *http.Request) {
 	_ = p.renderGrid(w, r, state).Render(r.Context(), w)
 }
 
-// persistAndRender saves the (possibly-mutated) state under the default
-// (session) store and writes the updated grid for an htmx swap. The user's
-// custom SaveHook is intentionally NOT called here — that's only fired by
-// the explicit "Save" button. Mutations are committed to the session so they
-// survive within the user's working session.
+// persistAndRender commits the (possibly-mutated) state through the page's
+// saveHook — the SAME store currentState/handleSave read from — and writes the
+// updated grid for an htmx swap. Persisting every mutation immediately (rather
+// than buffering in the session and flushing only on Save) is what keeps a
+// reorder from being lost: the explicit Save button reads back exactly what
+// these mutations wrote.
 func (p *LayoutManagerPage) persistAndRender(w http.ResponseWriter, r *http.Request, state LayoutState) {
 	// Snap cols to current grid in case anything sneaks in out of bounds.
 	for i := range state.Blocks {
 		state.Blocks[i].Cols = clampCols(state.Blocks[i].Cols, p.gridCols)
 	}
 
-	// Always persist to the in-session working buffer so edits-in-flight
-	// survive page reloads. The custom SaveHook is reserved for explicit Save
-	// clicks (handleSave flushes this buffer out to it). Mark the buffer
-	// initialized so currentState reads it back rather than re-seeding from
-	// the durable store.
-	key := p.sessionKey()
-	if err := sessionSave(key)(r, state); err == nil {
-		_ = markSessionInitialized(r, key)
+	if err := p.saveHook(r, state); err != nil {
+		logger.Error("[layoutmgr] persist mutation failed: %v", err)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

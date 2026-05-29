@@ -80,40 +80,6 @@ func sessionSave(sessionKey string) SaveHook {
 	}
 }
 
-// sessionInitialized reports whether the working buffer for sessionKey has
-// already been seeded this session. We track a separate boolean marker so we
-// can distinguish "buffer holds an empty layout because the user deleted every
-// block" from "buffer was never seeded from the durable store". Without it,
-// an empty buffer would be re-seeded from loadHook on the next render and the
-// user's deletions would reappear.
-func sessionInitialized(r *http.Request, sessionKey string) (bool, error) {
-	sess, err := openSession(r)
-	if err != nil {
-		return false, err
-	}
-	v, ok := sess.Values[sessionKey+":init"]
-	if !ok {
-		return false, nil
-	}
-	b, _ := v.(bool)
-	return b, nil
-}
-
-// markSessionInitialized flips the init marker for sessionKey. Persisting it
-// requires the ResponseWriter (stashed via attachWriter) just like sessionSave.
-func markSessionInitialized(r *http.Request, sessionKey string) error {
-	sess, err := openSession(r)
-	if err != nil {
-		return err
-	}
-	sess.Values[sessionKey+":init"] = true
-	w, ok := writerFromRequest(r)
-	if !ok {
-		return errNoWriter
-	}
-	return sess.Save(r, w)
-}
-
 // openSession returns the gorilla session for layout state. Stored alongside
 // auth in the same store but under a distinct session name so clearing one
 // doesn't nuke the other.

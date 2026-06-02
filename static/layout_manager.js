@@ -181,9 +181,13 @@
         },
     });
 
+
+    const REGISTERED_FLAG = '__lmRegistered_' + COMPONENT_NAME;
+
     const register = () => {
         if (!window.Alpine) return false;
         window.Alpine.data(COMPONENT_NAME, componentFactory);
+        window[REGISTERED_FLAG] = true;
         return true;
     };
 
@@ -193,15 +197,15 @@
     // available when x-data is first evaluated.
     document.addEventListener('alpine:init', register);
 
-    // Fallback: Alpine has already initialised (e.g. on an htmx swap that
-    // injects this script after the page has bootstrapped). Register now,
-    // then re-init any pending subtrees so they pick up the registration.
+
     if (window.Alpine && window.Alpine.version) {
-        if (register()) {
+        const wasRegistered = !!window[REGISTERED_FLAG];
+        if (register() && !wasRegistered) {
             document.querySelectorAll('[x-data="' + COMPONENT_NAME + '"]').forEach(el => {
-                try { window.Alpine.destroyTree?.(el); } catch (_) { /* ignore */ }
+                // Skip anything Alpine already initialised to avoid a double-init.
+                if (el._x_dataStack) return;
                 try { window.Alpine.initTree(el); } catch (e) {
-                    console.error('[layoutmgr] re-init failed', e);
+                    console.error('[layoutmgr] cold init failed', e);
                 }
             });
         }

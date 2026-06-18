@@ -93,8 +93,8 @@ templ LayoutManagerComponent(d *PageData) {
 
 // Toolbar renders the heading + edit-mode controls.
 //
-// The controls piggy-back on iridium's existing button classes (btn-primary,
-// btn-outline, etc.) and iridium-icons so they pick up the host theme — dark
+// The controls piggy-back on iridium's existing button classes (ir-btn-primary,
+// ir-btn-outline, etc.) and iridium-icons so they pick up the host theme — dark
 // mode, focus rings, hover states, the lot — without us re-implementing any
 // of it. Class names are the same ones iridium's own templates use.
 templ Toolbar(d *PageData) {
@@ -117,7 +117,7 @@ templ Toolbar(d *PageData) {
                                 <option value={ opt.Key }>{ opt.Label }</option>
                             }
                         </select>
-                        <button type="submit" class="btn-primary lm-icon-btn">
+                        <button type="submit" class="ir-btn-primary lm-icon-btn">
                             @icons.Plus.Component()
                             <span>Add</span>
                         </button>
@@ -125,7 +125,7 @@ templ Toolbar(d *PageData) {
                 }
                 <button
                     type="button"
-                    class="btn-outline lm-icon-btn"
+                    class="ir-btn-outline lm-icon-btn"
                     hx-post={ d.URLs.Save }
                     hx-swap="none"
                 >
@@ -134,7 +134,7 @@ templ Toolbar(d *PageData) {
                 </button>
             </div>
             if d.ShowLockButton {
-                <button type="button" class="btn-outline lm-icon-btn" @click="toggleEdit">
+                <button type="button" class="ir-btn-outline lm-icon-btn" @click="toggleEdit">
                     <span x-show="!editMode" class="lm-icon-btn">
                         @icons.Lock.Component()
                         <span>Edit</span>
@@ -157,7 +157,7 @@ templ Toolbar(d *PageData) {
 //   - In edit mode every numbered button shows so the user can populate empty
 //     pages; in view mode only the buttons for pages that actually have content
 //     appear.
-//   - The active page is highlighted (btn-primary), the rest are btn-outline.
+//   - The active page is highlighted (ir-btn-primary), the rest are ir-btn-outline.
 //   - Clicking (or pressing cmd/ctrl+N) calls selectLayout(i), which swaps the
 //     grid via htmx and updates the highlight.
 //
@@ -216,7 +216,7 @@ func layoutBtnShow(d *PageData, i int) string {
 // layoutBtnClass returns the :class expression toggling the active page's
 // highlight against Alpine's currentLayout state.
 func layoutBtnClass(i int) string {
-    return fmt.Sprintf("currentLayout === %d ? 'btn-primary' : 'btn-outline'", i)
+    return fmt.Sprintf("currentLayout === %d ? 'ir-btn-primary' : 'ir-btn-outline'", i)
 }
 
 // gridStyleVar returns an inline style declaration setting the --lm-cols var

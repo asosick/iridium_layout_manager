@@ -17,8 +17,8 @@ import (
 // route suffixes — kept short because they live under the page slug.
 const (
 	routeAdd     = "/lm/add"
-	routeRemove  = "/lm/remove" // ?id=...&layout=N
-	routeResize  = "/lm/resize" // ?id=...&cols=N&layout=N
+	routeRemove  = "/lm/remove"  // ?id=...&layout=N
+	routeResize  = "/lm/resize"  // ?id=...&cols=N&layout=N
 	routeReorder = "/lm/reorder" // ?layout=N
 	routeSelect  = "/lm/select"  // ?layout=N — switch the displayed layout
 	routeSave    = "/lm/save"
@@ -202,10 +202,17 @@ func (p *LayoutManagerPage) handleSave(w http.ResponseWriter, r *http.Request) {
 	r = attachWriter(r, w)
 
 	state := p.currentState(r)
-	if err := p.saveHook(r, state); err != nil {
+	if err := p.sessionSave(r, state); err != nil {
 		logger.Error("[layoutmgr] save failed: %v", err)
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
+	}
+	if p.saveHook != nil {
+		if err := p.saveHook(r, state); err != nil {
+			logger.Error("[layoutmgr] save hook failed: %v", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
 	}
 	// Every mutation (add/remove/resize/reorder) already persists immediately
 	// through persistAndRender, so an explicit Save only needs to commit and
@@ -218,12 +225,8 @@ func (p *LayoutManagerPage) handleSave(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// persistAndRender commits the (possibly-mutated) state through the page's
-// saveHook — the SAME store currentState/handleSave read from — and writes the
-// updated grid for an htmx swap. Persisting every mutation immediately (rather
-// than buffering in the session and flushing only on Save) is what keeps a
-// reorder from being lost: the explicit Save button reads back exactly what
-// these mutations wrote.
+// persistAndRender stores working changes in the user's session and writes the
+// updated grid for an htmx swap. Durable persistence remains an explicit Save.
 func (p *LayoutManagerPage) persistAndRender(w http.ResponseWriter, r *http.Request, state LayoutState, layoutIdx int) {
 	// Snap cols to current grid in case anything sneaks in out of bounds.
 	for li := range state.Layouts {
@@ -233,7 +236,7 @@ func (p *LayoutManagerPage) persistAndRender(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	if err := p.saveHook(r, state); err != nil {
+	if err := p.sessionSave(r, state); err != nil {
 		logger.Error("[layoutmgr] persist mutation failed: %v", err)
 	}
 

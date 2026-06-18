@@ -31,6 +31,9 @@ type LayoutManagerPage struct {
 	gridCols      int
 	layoutCount   int
 	showLockBtn   bool
+	sessionLoad   LoadHook
+	sessionSave   SaveHook
+	sessionExists stateExistsHook
 	saveHook      SaveHook
 	loadHook      LoadHook
 	allowReorder  bool
@@ -64,8 +67,9 @@ func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 	}
 	// Default persistence: per-page session key.
 	sessionKey := "layout:" + cpp.SlugStr
-	p.loadHook = sessionLoad(sessionKey)
-	p.saveHook = sessionSave(sessionKey)
+	p.sessionLoad = sessionLoad(sessionKey)
+	p.sessionSave = sessionSave(sessionKey)
+	p.sessionExists = sessionStateExists(sessionKey)
 	return p
 }
 
@@ -396,19 +400,22 @@ func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 
 // --- helpers ----------------------------------------------------------------
 
-// currentState reads the page's layout from the configured loadHook. The
-// loadHook/saveHook pair is the single source of truth: every mutation (add,
-// remove, resize, reorder) persists through saveHook immediately, and reads
-// come straight back through loadHook. There is deliberately NO separate
-// session "draft" buffer — an earlier design used one, but it diverged from
-// the durable store whenever a consumer supplied custom DB-backed hooks (or
-// hadn't configured auth.Store), causing reorders to be silently dropped on
-// Save. Routing everything through one store keeps read and write consistent.
+// currentState reads the user's session-backed working state. A custom load
+// hook seeds a new session, while subsequent edits continue from the session
+// until the user explicitly saves them.
 func (p *LayoutManagerPage) currentState(r *http.Request) LayoutState {
-	state, err := p.loadHook(r)
+	state, err := p.sessionLoad(r)
 	if err != nil {
-		// Soft-fail to an empty state so the page still renders.
-		state = LayoutState{}
+		return p.normalize(LayoutState{})
+	}
+	exists, err := p.sessionExists(r)
+	if err != nil || exists || p.loadHook == nil {
+		return p.normalize(state)
+	}
+
+	state, err = p.loadHook(r)
+	if err != nil {
+		return p.normalize(LayoutState{})
 	}
 	return p.normalize(state)
 }

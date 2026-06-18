@@ -18,6 +18,8 @@ type LoadHook func(r *http.Request) (LayoutState, error)
 // SaveHook persists the LayoutState for the current request.
 type SaveHook func(r *http.Request, state LayoutState) error
 
+type stateExistsHook func(r *http.Request) (bool, error)
+
 var (
 	errNoWriter       = errors.New("layoutmgr: no ResponseWriter on the request context — call attachWriter from your handler")
 	errAuthStoreUnset = errors.New("layoutmgr: auth.Store is not configured; either configure iridium's auth Store or provide your own SaveHook/LoadHook")
@@ -56,6 +58,17 @@ func sessionLoad(sessionKey string) LoadHook {
 			return zero, nil
 		}
 		return state, nil
+	}
+}
+
+func sessionStateExists(sessionKey string) stateExistsHook {
+	return func(r *http.Request) (bool, error) {
+		sess, err := openSession(r)
+		if err != nil {
+			return false, err
+		}
+		_, ok := sess.Values[sessionKey]
+		return ok, nil
 	}
 }
 

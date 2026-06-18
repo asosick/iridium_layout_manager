@@ -211,32 +211,43 @@
     });
 
 
-    const REGISTERED_FLAG = '__lmRegistered_' + COMPONENT_NAME;
-
     const register = () => {
         if (!window.Alpine) return false;
         window.Alpine.data(COMPONENT_NAME, componentFactory);
-        window[REGISTERED_FLAG] = true;
         return true;
+    };
+
+    const hasComponentState = (el) => Array.isArray(el._x_dataStack)
+        && el._x_dataStack.some(state => typeof state.toggleEdit === 'function');
+
+    const repairComponentTrees = () => {
+        if (!window.Alpine || typeof window.Alpine.initTree !== 'function') return;
+
+        document.querySelectorAll('[x-data="' + COMPONENT_NAME + '"]').forEach(el => {
+            if (hasComponentState(el)) return;
+
+            try {
+                if (el._x_dataStack && typeof window.Alpine.destroyTree === 'function') {
+                    window.Alpine.destroyTree(el);
+                }
+                window.Alpine.initTree(el);
+            } catch (e) {
+                console.error('[layoutmgr] component recovery failed', e);
+            }
+        });
     };
 
     // Preferred path: Alpine hasn't started yet. The alpine:init event fires
     // immediately before Alpine walks the DOM, after this script has hooked
     // it. Registering inside the listener guarantees the data component is
     // available when x-data is first evaluated.
-    document.addEventListener('alpine:init', register);
+    document.addEventListener('alpine:init', register, { once: true });
 
-
-    if (window.Alpine && window.Alpine.version) {
-        const wasRegistered = !!window[REGISTERED_FLAG];
-        if (register() && !wasRegistered) {
-            document.querySelectorAll('[x-data="' + COMPONENT_NAME + '"]').forEach(el => {
-                // Skip anything Alpine already initialised to avoid a double-init.
-                if (el._x_dataStack) return;
-                try { window.Alpine.initTree(el); } catch (e) {
-                    console.error('[layoutmgr] cold init failed', e);
-                }
-            });
-        }
+    // If Alpine already started, register immediately and repair any tree that
+    // was marked initialised before the component became available. Running a
+    // second check on the next frame also covers an in-progress Alpine scan.
+    if (register()) {
+        queueMicrotask(repairComponentTrees);
+        window.requestAnimationFrame(repairComponentTrees);
     }
 })();

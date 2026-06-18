@@ -93,20 +93,22 @@
             this.editMode = !this.editMode;
         },
 
-        // Called by Alpine sort after the user drops a block. The DOM is
-        // already in the new order; we read it off [data-id] attributes and
-        // POST it. The server's response replaces the grid so the server's
-        // view stays authoritative.
-        handleReorder() {
+        // Alpine sort provides the moved block ID and its new zero-based
+        // position. Rebuilding from both values is safe whether its callback
+        // runs just before or just after the browser moves the DOM element.
+        handleReorder(movedID, newPosition) {
             if (this.reorderPending) return;
 
             const grid = this.$el.querySelector('[data-lm-grid]');
             if (!grid) return;
-            const order = Array.from(grid.querySelectorAll('[data-lm-block]'))
+            const currentOrder = Array.from(grid.querySelectorAll('[data-lm-block]'))
                 .map(el => el.dataset.id)
                 .filter(Boolean);
+            const order = currentOrder.filter(id => id !== movedID);
+            const position = Math.max(0, Math.min(Number(newPosition), order.length));
+            order.splice(position, 0, movedID);
             const url = grid.dataset.reorderUrl;
-            if (!url) return;
+            if (!url || !movedID || !Number.isInteger(Number(newPosition))) return;
 
             this.reorderPending = true;
 

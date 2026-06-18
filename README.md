@@ -123,8 +123,8 @@ The plugin uses the Alpine Sort plugin that Iridium's core JS bundle already
 ships with — no extra JS dependency. After a drop:
 
 1. Alpine reorders the `<div data-lm-block>` elements in the DOM.
-2. The `handleReorder` Alpine method (registered by the plugin) reads the
-   new order from `data-id` attributes.
+2. Alpine passes the moved block ID and its new position to `handleReorder`,
+   which builds the new order from the grid's `data-id` attributes.
 3. It POSTs `{"order": [...]}` to the page's `/lm/reorder` endpoint.
 4. The server reorders the saved state and returns the freshly-rendered
    grid; htmx swaps it back in.

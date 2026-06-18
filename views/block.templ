@@ -19,7 +19,7 @@ templ Block(d *PageData, b BlockData) {
         data-id={ b.ID }
         data-cols={ strconv.Itoa(b.Cols) }
         if d.AllowReorder {
-            x-sort:item
+            x-sort:item={ strconv.Quote(b.ID) }
         }
     >
         <div class="lm-block-controls" x-show="editMode" x-cloak>

@@ -20,7 +20,7 @@ templ Grid(d *PageData) {
         data-lm-grid
         data-reorder-url={ d.ReorderURL }
         if d.AllowReorder {
-            x-sort="handleReorder"
+            x-sort
             x-sort:config="{ handle: '.lm-block-handle' }"
         }
     >

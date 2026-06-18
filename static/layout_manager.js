@@ -33,6 +33,7 @@
         reorderPending: false,
         // Bound document keydown handler, kept so we can detach on destroy.
         _hotkeyHandler: null,
+        _sortHandler: null,
 
         init() {
             const select = this.$el.querySelector('[data-lm-type-select]');
@@ -49,12 +50,24 @@
             // cmd/ctrl + 1..9 switches pages (matches the Filament original).
             this._hotkeyHandler = (e) => this.onHotkey(e);
             document.addEventListener('keydown', this._hotkeyHandler);
+
+            // Listen to SortableJS directly. Alpine's CSP evaluator can move
+            // the elements while still failing to invoke an x-sort expression.
+            this._sortHandler = (e) => {
+                const grid = this.$el.querySelector('[data-lm-grid]');
+                if (grid && e.target === grid) this.handleReorder();
+            };
+            this.$el.addEventListener('sort', this._sortHandler);
         },
 
         destroy() {
             if (this._hotkeyHandler) {
                 document.removeEventListener('keydown', this._hotkeyHandler);
                 this._hotkeyHandler = null;
+            }
+            if (this._sortHandler) {
+                this.$el.removeEventListener('sort', this._sortHandler);
+                this._sortHandler = null;
             }
         },
 
@@ -93,9 +106,8 @@
             this.editMode = !this.editMode;
         },
 
-        // Alpine's CSP build does not reliably expose x-sort:item values to a
-        // named handler. Wait until Sortable finishes its current event before
-        // reading the final DOM order instead.
+        // Wait until Sortable finishes its current event before reading the
+        // final DOM order.
         handleReorder() {
             if (this.reorderPending) return;
 

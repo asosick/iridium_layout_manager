@@ -73,7 +73,7 @@ func Grid(d *PageData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if d.AllowReorder {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " x-sort=\"handleReorder\" x-sort:config=\"{ handle: '.lm-block-handle' }\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, " x-sort x-sort:config=\"{ handle: '.lm-block-handle' }\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

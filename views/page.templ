@@ -82,6 +82,7 @@ templ LayoutManagerComponent(d *PageData) {
     <div
         class="lm-page"
         x-data="layout_manager"
+        :class="editMode ? 'lm-editing' : ''"
         data-lm-select-url={ d.URLs.Select }
         data-lm-layout-count={ strconv.Itoa(d.LayoutCount) }
         data-lm-current-layout={ strconv.Itoa(d.CurrentLayout) }

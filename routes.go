@@ -238,6 +238,8 @@ func (p *LayoutManagerPage) persistAndRender(w http.ResponseWriter, r *http.Requ
 
 	if err := p.sessionSave(r, state); err != nil {
 		logger.Error("[layoutmgr] persist mutation failed: %v", err)
+		http.Error(w, "failed to persist layout", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

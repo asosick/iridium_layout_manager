@@ -128,6 +128,7 @@ templ Toolbar(d *PageData) {
                     class="ir-btn-outline lm-icon-btn"
                     hx-post={ d.URLs.Save }
                     hx-swap="none"
+                    :disabled="reorderPending"
                 >
                     @icons.Save.Component()
                     <span>Save</span>

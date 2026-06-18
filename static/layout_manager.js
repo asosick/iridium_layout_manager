@@ -29,6 +29,8 @@
         layoutCount: 1,
         // Endpoint the grid is swapped from when switching pages.
         selectUrl: '',
+        // Prevent Save from racing the session cookie written by reorder.
+        reorderPending: false,
         // Bound document keydown handler, kept so we can detach on destroy.
         _hotkeyHandler: null,
 
@@ -96,6 +98,8 @@
         // POST it. The server's response replaces the grid so the server's
         // view stays authoritative.
         handleReorder() {
+            if (this.reorderPending) return;
+
             const grid = this.$el.querySelector('[data-lm-grid]');
             if (!grid) return;
             const order = Array.from(grid.querySelectorAll('[data-lm-block]'))
@@ -103,6 +107,8 @@
                 .filter(Boolean);
             const url = grid.dataset.reorderUrl;
             if (!url) return;
+
+            this.reorderPending = true;
 
             // Iridium enforces CSRF on every mutating request: a POST without a
             // valid X-CSRF-Token is rejected with 403. htmx-driven mutations
@@ -177,7 +183,10 @@
                         }
                     }
                 })
-                .catch(err => console.error('[layoutmgr] reorder failed', err));
+                .catch(err => console.error('[layoutmgr] reorder failed', err))
+                .finally(() => {
+                    this.reorderPending = false;
+                });
         },
     });
 

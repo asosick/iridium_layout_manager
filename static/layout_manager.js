@@ -93,24 +93,30 @@
             this.editMode = !this.editMode;
         },
 
-        // Alpine sort provides the moved block ID and its new zero-based
-        // position. Rebuilding from both values is safe whether its callback
-        // runs just before or just after the browser moves the DOM element.
-        handleReorder(movedID, newPosition) {
+        // Alpine's CSP build does not reliably expose x-sort:item values to a
+        // named handler. Wait until Sortable finishes its current event before
+        // reading the final DOM order instead.
+        handleReorder() {
             if (this.reorderPending) return;
 
+            this.reorderPending = true;
+            window.requestAnimationFrame(() => this.persistReorder());
+        },
+
+        persistReorder() {
             const grid = this.$el.querySelector('[data-lm-grid]');
-            if (!grid) return;
-            const currentOrder = Array.from(grid.querySelectorAll('[data-lm-block]'))
+            if (!grid) {
+                this.reorderPending = false;
+                return;
+            }
+            const order = Array.from(grid.querySelectorAll('[data-lm-block]'))
                 .map(el => el.dataset.id)
                 .filter(Boolean);
-            const order = currentOrder.filter(id => id !== movedID);
-            const position = Math.max(0, Math.min(Number(newPosition), order.length));
-            order.splice(position, 0, movedID);
             const url = grid.dataset.reorderUrl;
-            if (!url || !movedID || !Number.isInteger(Number(newPosition))) return;
-
-            this.reorderPending = true;
+            if (!url || order.length === 0) {
+                this.reorderPending = false;
+                return;
+            }
 
             // Iridium enforces CSRF on every mutating request: a POST without a
             // valid X-CSRF-Token is rejected with 403. htmx-driven mutations

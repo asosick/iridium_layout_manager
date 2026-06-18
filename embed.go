@@ -1,7 +1,9 @@
 package layoutmgr
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"path"
@@ -25,6 +27,17 @@ func assetNames() []string {
 		}
 	}
 	return out
+}
+
+// assetVersion fingerprints embedded content so rebuilt assets never reuse a
+// browser-cached URL from an older plugin binary.
+func assetVersion(name string) string {
+	contents, err := staticFS.ReadFile("static/" + path.Base(name))
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(contents)
+	return hex.EncodeToString(sum[:6])
 }
 
 // serveAsset streams one of the embedded files with a reasonable Content-Type

@@ -174,6 +174,7 @@ func (p *LayoutManagerPage) handleReorder(w http.ResponseWriter, r *http.Request
 		return
 	}
 	state := p.currentState(r)
+	logger.Debug("[layoutmgr] reorder layout %d: %v", idx, body.Order)
 	state.LayoutAt(idx, p.layoutCount).Reorder(body.Order)
 	p.persistAndRender(w, r, state, idx)
 }
@@ -271,7 +272,11 @@ func (p *LayoutManagerPage) registerAssetRoutes(mux wrapper.IMux) {
 // iridium routes the request inside a panel-prefixed mux.
 func (p *LayoutManagerPage) assetURL(r *http.Request, name string) string {
 	prefix := panelPathFromRequest(r)
-	return prefix + p.SlugStr + routeAssets + name
+	asset := prefix + p.SlugStr + routeAssets + name
+	if version := assetVersion(name); version != "" {
+		return asset + "?v=" + version
+	}
+	return asset
 }
 
 // panelPathFromRequest pulls the panel prefix from the current request's

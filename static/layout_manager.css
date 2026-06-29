@@ -92,6 +92,33 @@
     grid-template-columns: repeat(var(--lm-cols, 2), minmax(0, 1fr));
     gap: 1rem;
     min-height: 4rem;
+    position: relative;
+}
+
+.lm-grid-guide {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(var(--lm-cols, 2), minmax(0, 1fr));
+    gap: 1rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+    z-index: 0;
+}
+
+.lm-grid-guide-cell {
+    border: 1px dashed color-mix(in srgb, var(--color-primary) 35%, transparent);
+    border-radius: var(--radius, 0.5rem);
+}
+
+.lm-grid-guide-cell.is-active {
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 65%, transparent);
+}
+
+.lm-grid.lm-resizing .lm-grid-guide {
+    opacity: 1;
 }
 
 /* Single block in the grid. data-cols is the live column span for this
@@ -107,6 +134,8 @@
     flex-direction: column;
     gap: 0.5rem;
     min-height: 5rem;
+    position: relative;
+    z-index: 1;
 }
 
 /* Keep the block outline as an editing affordance without shifting the grid
@@ -167,6 +196,11 @@
     color: var(--color-foreground);
 }
 
+.lm-block-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
 .lm-block-btn-danger:hover {
     background: color-mix(in srgb, var(--color-destructive) 15%, transparent);
     color: var(--color-destructive);
@@ -196,6 +230,35 @@
 .lm-block-handle:hover {
     background: var(--color-border);
     color: var(--color-foreground);
+}
+
+.lm-resize-handle {
+    position: absolute;
+    right: -0.35rem;
+    bottom: -0.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 0.25rem;
+    background: var(--color-background);
+    color: var(--color-muted-foreground, var(--color-foreground));
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 2;
+}
+
+.lm-resize-handle svg {
+    width: 0.8rem;
+    height: 0.8rem;
+}
+
+.lm-block-resizing {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 45%, transparent);
+    user-select: none;
 }
 
 /* Empty state when the user hasn't added any blocks yet. */

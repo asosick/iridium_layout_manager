@@ -29,11 +29,17 @@
         layoutCount: 1,
         // Endpoint the grid is swapped from when switching pages.
         selectUrl: '',
+        lockAfterDone: true,
         // Prevent Save from racing the session cookie written by reorder.
         reorderPending: false,
         // Bound document keydown handler, kept so we can detach on destroy.
         _hotkeyHandler: null,
         _sortHandler: null,
+        _pointerDownHandler: null,
+        _afterRequestHandler: null,
+        _resizeState: null,
+        _resizeMoveHandler: null,
+        _resizeEndHandler: null,
 
         init() {
             const select = this.$el.querySelector('[data-lm-type-select]');
@@ -44,6 +50,8 @@
             // Read multi-page config off the root element's data-* attributes.
             const root = this.$el;
             this.selectUrl = root.dataset.lmSelectUrl || '';
+            this.lockAfterDone = root.dataset.lmLockAfterDone !== 'false';
+            this.editMode = root.dataset.lmEditDefault === 'true';
             this.layoutCount = parseInt(root.dataset.lmLayoutCount || '1', 10) || 1;
             this.currentLayout = parseInt(root.dataset.lmCurrentLayout || '0', 10) || 0;
 
@@ -58,6 +66,21 @@
                 if (grid && e.target === grid) this.handleReorder();
             };
             this.$el.addEventListener('sort', this._sortHandler);
+
+            this._pointerDownHandler = (e) => {
+                const handle = e.target.closest('[data-lm-resize-handle]');
+                if (handle && this.$el.contains(handle)) this.startResize(e, handle);
+            };
+            this.$el.addEventListener('pointerdown', this._pointerDownHandler);
+
+            this._afterRequestHandler = (e) => {
+                const source = e.detail && e.detail.elt;
+                if (!source || !source.matches('[data-lm-done]')) return;
+                if (e.detail.successful !== false && this.lockAfterDone) {
+                    this.editMode = false;
+                }
+            };
+            this.$el.addEventListener('htmx:afterRequest', this._afterRequestHandler);
         },
 
         destroy() {
@@ -69,6 +92,15 @@
                 this.$el.removeEventListener('sort', this._sortHandler);
                 this._sortHandler = null;
             }
+            if (this._pointerDownHandler) {
+                this.$el.removeEventListener('pointerdown', this._pointerDownHandler);
+                this._pointerDownHandler = null;
+            }
+            if (this._afterRequestHandler) {
+                this.$el.removeEventListener('htmx:afterRequest', this._afterRequestHandler);
+                this._afterRequestHandler = null;
+            }
+            this.cleanupResize();
         },
 
         // onHotkey switches pages on (cmd|ctrl)+N. Ignored when N is out of
@@ -104,6 +136,114 @@
 
         toggleEdit() {
             this.editMode = !this.editMode;
+        },
+
+        startEditing() {
+            this.editMode = true;
+        },
+
+        startResize(e, handle) {
+            if (!this.editMode || (e.button !== undefined && e.button !== 0)) return;
+
+            const block = handle.closest('[data-lm-block]');
+            const grid = handle.closest('[data-lm-grid]');
+            if (!block || !grid) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const styles = window.getComputedStyle(grid);
+            const columns = Math.max(1, styles.gridTemplateColumns.split(' ').length);
+            const gap = parseFloat(styles.columnGap) || 0;
+            const columnWidth = (grid.clientWidth - gap * (columns - 1)) / columns;
+            const unit = columnWidth + gap;
+            const gridRect = grid.getBoundingClientRect();
+            const blockRect = block.getBoundingClientRect();
+            const startColumn = Math.max(0, Math.round((blockRect.left - gridRect.left) / unit));
+            const startCols = parseInt(block.dataset.cols || '1', 10) || 1;
+
+            this._resizeState = {
+                block,
+                grid,
+                handle,
+                startX: e.clientX,
+                startCols,
+                cols: startCols,
+                columns,
+                startColumn,
+                unit,
+                url: handle.dataset.resizeUrl || '',
+            };
+            grid.classList.add('lm-resizing');
+            block.classList.add('lm-block-resizing');
+            this.updateResizeGuide();
+
+            this._resizeMoveHandler = (event) => this.previewResize(event);
+            this._resizeEndHandler = (event) => this.finishResize(event);
+            document.addEventListener('pointermove', this._resizeMoveHandler);
+            document.addEventListener('pointerup', this._resizeEndHandler, { once: true });
+            document.addEventListener('pointercancel', this._resizeEndHandler, { once: true });
+        },
+
+        previewResize(e) {
+            const state = this._resizeState;
+            if (!state) return;
+            e.preventDefault();
+
+            const delta = Math.round((e.clientX - state.startX) / state.unit);
+            const maxCols = Math.max(1, state.columns - state.startColumn);
+            state.cols = Math.max(1, Math.min(state.startCols + delta, maxCols));
+            state.block.dataset.cols = String(state.cols);
+            this.updateResizeGuide();
+        },
+
+        updateResizeGuide() {
+            const state = this._resizeState;
+            if (!state) return;
+            const end = state.startColumn + state.cols;
+            state.grid.querySelectorAll('.lm-grid-guide-cell').forEach((cell, index) => {
+                cell.classList.toggle('is-active', index >= state.startColumn && index < end);
+            });
+        },
+
+        finishResize(e) {
+            const state = this._resizeState;
+            if (!state) return;
+            const cancelled = e.type === 'pointercancel';
+            const changed = !cancelled && state.cols !== state.startCols && state.url;
+
+            if (!changed) state.block.dataset.cols = String(state.startCols);
+            this.cleanupResize();
+            if (!changed || !window.htmx) return;
+
+            window.htmx.ajax('POST', state.url + '&cols=' + state.cols, {
+                source: state.handle,
+                target: state.grid,
+                swap: 'outerHTML',
+            }).catch(err => {
+                state.block.dataset.cols = String(state.startCols);
+                console.error('[layoutmgr] resize failed', err);
+            });
+        },
+
+        cleanupResize() {
+            if (this._resizeMoveHandler) {
+                document.removeEventListener('pointermove', this._resizeMoveHandler);
+                this._resizeMoveHandler = null;
+            }
+            if (this._resizeEndHandler) {
+                document.removeEventListener('pointerup', this._resizeEndHandler);
+                document.removeEventListener('pointercancel', this._resizeEndHandler);
+                this._resizeEndHandler = null;
+            }
+            if (this._resizeState) {
+                this._resizeState.grid.classList.remove('lm-resizing');
+                this._resizeState.block.classList.remove('lm-block-resizing');
+                this._resizeState.grid.querySelectorAll('.lm-grid-guide-cell').forEach(cell => {
+                    cell.classList.remove('is-active');
+                });
+            }
+            this._resizeState = null;
         },
 
         // Wait until Sortable finishes its current event before reading the
@@ -187,7 +327,7 @@
                     // widget B for one click. We rescan both subsystems
                     // against the new grid so all the hx-post URLs the
                     // server just rendered fire correctly.
-                    const newGrid = document.querySelector('[data-lm-grid]');
+                    const newGrid = this.$el.querySelector('[data-lm-grid]');
                     if (!newGrid) return;
                     if (window.htmx && typeof window.htmx.process === 'function') {
                         try { window.htmx.process(newGrid); } catch (e) {

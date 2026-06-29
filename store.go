@@ -32,9 +32,13 @@ var (
 // State is JSON-encoded so it survives the session codec without needing
 // every consuming app to gob-register the LayoutState type.
 func sessionLoad(sessionKey string) LoadHook {
+	return namedSessionLoad("layout-manager", sessionKey)
+}
+
+func namedSessionLoad(sessionName, sessionKey string) LoadHook {
 	return func(r *http.Request) (LayoutState, error) {
 		var zero LayoutState
-		sess, err := openSession(r)
+		sess, err := openNamedSession(r, sessionName)
 		if err != nil {
 			return zero, err
 		}
@@ -62,8 +66,12 @@ func sessionLoad(sessionKey string) LoadHook {
 }
 
 func sessionStateExists(sessionKey string) stateExistsHook {
+	return namedSessionStateExists("layout-manager", sessionKey)
+}
+
+func namedSessionStateExists(sessionName, sessionKey string) stateExistsHook {
 	return func(r *http.Request) (bool, error) {
-		sess, err := openSession(r)
+		sess, err := openNamedSession(r, sessionName)
 		if err != nil {
 			return false, err
 		}
@@ -73,8 +81,12 @@ func sessionStateExists(sessionKey string) stateExistsHook {
 }
 
 func sessionSave(sessionKey string) SaveHook {
+	return namedSessionSave("layout-manager", sessionKey)
+}
+
+func namedSessionSave(sessionName, sessionKey string) SaveHook {
 	return func(r *http.Request, state LayoutState) error {
-		sess, err := openSession(r)
+		sess, err := openNamedSession(r, sessionName)
 		if err != nil {
 			return err
 		}
@@ -93,14 +105,11 @@ func sessionSave(sessionKey string) SaveHook {
 	}
 }
 
-// openSession returns the gorilla session for layout state. Stored alongside
-// auth in the same store but under a distinct session name so clearing one
-// doesn't nuke the other.
-func openSession(r *http.Request) (*sessions.Session, error) {
+func openNamedSession(r *http.Request, sessionName string) (*sessions.Session, error) {
 	if auth.Store == nil {
 		return nil, errAuthStoreUnset
 	}
-	return auth.Store.Get(r, "layout-manager")
+	return auth.Store.Get(r, sessionName)
 }
 
 // --- request-scoped response writer plumbing ---------------------------------

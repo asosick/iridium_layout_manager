@@ -40,9 +40,11 @@ type PageURLs struct {
     Add     string
     Remove  string // append ?id=...
     Resize  string // append ?id=...&delta=±1 (or ?cols=N)
+    Move    string
     Reorder string
     Select  string // append ?layout=N — switch displayed layout
     Save    string
+    Reset   string
     CSS     string
     JS      string
 }
@@ -63,6 +65,11 @@ type BlockData struct {
     ResizeIncURL   string
     ResizeDecURL   string
     ResizeToggleURL string
+    ResizeURL       string
+    MoveLeftURL     string
+    MoveRightURL    string
+    CanMoveLeft     bool
+    CanMoveRight    bool
 }
 
 // LayoutManagerComponent is the root component — the toolbar + grid. Rendered
@@ -86,6 +93,8 @@ templ LayoutManagerComponent(d *PageData) {
         data-lm-select-url={ d.URLs.Select }
         data-lm-layout-count={ strconv.Itoa(d.LayoutCount) }
         data-lm-current-layout={ strconv.Itoa(d.CurrentLayout) }
+        data-lm-lock-after-done={ strconv.FormatBool(d.ShowLockButton) }
+        data-lm-edit-default={ strconv.FormatBool(!d.ShowLockButton) }
     >
         @Toolbar(d)
         @Grid(d)
@@ -124,27 +133,33 @@ templ Toolbar(d *PageData) {
                         </button>
                     </form>
                 }
+                <form
+                    hx-post={ d.URLs.Reset }
+                    hx-target="[data-lm-grid]"
+                    hx-swap="outerHTML"
+                >
+                    <input type="hidden" name="layout" x-model="currentLayout"/>
+                    <button type="submit" class="ir-btn-outline lm-icon-btn" :disabled="reorderPending">
+                        @icons.RotateCcw.Component()
+                        <span>Reset</span>
+                    </button>
+                </form>
                 <button
                     type="button"
-                    class="ir-btn-outline lm-icon-btn"
+                    class="ir-btn-primary lm-icon-btn"
                     hx-post={ d.URLs.Save }
                     hx-swap="none"
+                    data-lm-done
                     :disabled="reorderPending"
                 >
-                    @icons.Save.Component()
-                    <span>Save</span>
+                    @icons.Check.Component()
+                    <span>Done</span>
                 </button>
             </div>
             if d.ShowLockButton {
-                <button type="button" class="ir-btn-outline lm-icon-btn" @click="toggleEdit">
-                    <span x-show="!editMode" class="lm-icon-btn">
-                        @icons.Lock.Component()
-                        <span>Edit</span>
-                    </span>
-                    <span x-show="editMode" x-cloak class="lm-icon-btn">
-                        @icons.LockOpen.Component()
-                        <span>Done</span>
-                    </span>
+                <button type="button" class="ir-btn-outline lm-icon-btn" x-show="!editMode" @click="startEditing">
+                    @icons.Lock.Component()
+                    <span>Edit</span>
                 </button>
             }
         </div>

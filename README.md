@@ -3,7 +3,7 @@
 A standalone plugin for [Iridium](https://github.com/iridiumgo/iridium) that
 lets your end-users arrange their own dashboard pages: pick blocks (Iridium
 widgets or arbitrary `templ` components) from a dropdown, drop them onto the
-page, drag-to-reorder, resize their column span, and save the result. Layouts
+page, drag-to-reorder, resize their column span, and commit the result. Layouts
 persist per-user (cookie/session by default; pluggable for DB-backed storage).
 
 Ported from the [FilamentPHP Filament Layout Manager](https://github.com/asosick/filament-layout-manager)
@@ -58,10 +58,10 @@ func main() {
 ```
 
 That's it. Visit the page, click **🔒 Edit**, pick a block from the dropdown,
-hit **+ Add** — your block appears on the grid. Drag the `⠿` handle to reorder,
-use the `+`/`−`/`⇔` buttons to resize, and `×` to remove. Click **Save** to
-commit the current arrangement (fires your `SaveHook`, or just persists the
-session by default).
+hit **+ Add** — your block appears on the grid. Drag the `⠿` handle or use the
+left/right buttons to reorder. Resize with the corner handle or the size
+buttons, and use `×` to remove. **Done** commits and locks the arrangement;
+**Reset** restores the last committed arrangement.
 
 ## Block kinds
 
@@ -81,11 +81,11 @@ layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     GridColumns(3).            // 1..N column grid
     LayoutCount(3).            // number of pages the user can flip between (default 3)
     Heading("My Dashboard").   // override the H1
-    ShowLockButton(true).      // hide to lock the page in edit mode permanently
+    ShowLockButton(true).      // hide to keep the page permanently editable
     Reorderable(true).         // enable drag-to-reorder
     Resizeable(true).          // enable +/-/full-width controls
-    SaveHook(myDBSave).        // optional — persist to DB on Save click
-    LoadHook(myDBLoad)         // optional — load from DB on each render
+    SaveHook(myDBSave).        // optional — persist to DB when Done is clicked
+    LoadHook(myDBLoad)         // optional — seed a new user session from DB
 ```
 
 ### Multiple pages
@@ -112,10 +112,10 @@ type SaveHook func(r *http.Request, state LayoutState) error
 
 `LayoutState` is JSON-serialisable; just persist it as a blob keyed by user.
 
-> **Note:** Working changes (add / remove / resize / reorder) are *always*
-> committed to the session so the user's edits survive page reloads. Your
-> `SaveHook` is only called when the user clicks the **Save** button — that's
-> the "commit to permanent storage" event.
+> **Note:** Working changes (add / remove / resize / reorder) are saved as a
+> session draft so they survive page reloads. **Done** updates the committed
+> session snapshot and calls `SaveHook`; **Reset** replaces the draft with that
+> snapshot without calling the durable hook.
 
 ## How drag-to-reorder works
 
@@ -131,12 +131,6 @@ ships with — no extra JS dependency. After a drop:
 
 The server's order is the source of truth, so the morph-swap also corrects
 any DOM drift if a concurrent request lands.
-
-## Status
-
-v1 — single layout, session-backed by default, no per-block custom state.
-Multi-layout tabs and per-block stores are deferred features from the
-Filament original; both can land later without API breaks.
 
 ## License
 MIT

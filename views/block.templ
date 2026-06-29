@@ -70,6 +70,30 @@ templ Block(d *PageData, b BlockData) {
                 </button>
             }
             if d.AllowReorder {
+                <button
+                    type="button"
+                    class="lm-block-btn"
+                    aria-label="Move block left"
+                    title="Move left"
+                    hx-post={ b.MoveLeftURL }
+                    hx-target="[data-lm-grid]"
+                    hx-swap="outerHTML"
+                    disabled?={ !b.CanMoveLeft }
+                >
+                    @icons.ChevronLeft.Component()
+                </button>
+                <button
+                    type="button"
+                    class="lm-block-btn"
+                    aria-label="Move block right"
+                    title="Move right"
+                    hx-post={ b.MoveRightURL }
+                    hx-target="[data-lm-grid]"
+                    hx-swap="outerHTML"
+                    disabled?={ !b.CanMoveRight }
+                >
+                    @icons.ChevronRight.Component()
+                </button>
                 <span class="lm-block-handle" aria-label="Drag to reorder" title="Drag to reorder">
                     @icons.GripVertical.Component()
                 </span>
@@ -78,5 +102,19 @@ templ Block(d *PageData, b BlockData) {
         <div class="lm-block-content">
             @b.Renderer
         </div>
+        if d.AllowResize {
+            <button
+                type="button"
+                class="lm-resize-handle"
+                data-lm-resize-handle
+                data-resize-url={ b.ResizeURL }
+                x-show="editMode"
+                x-cloak
+                aria-label="Drag to resize block"
+                title="Drag to resize"
+            >
+                @icons.Grip.Component()
+            </button>
+        }
     </div>
 }

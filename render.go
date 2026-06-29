@@ -29,6 +29,10 @@ func (p *LayoutManagerPage) renderGrid(w http.ResponseWriter, r *http.Request, s
 	return views.GridResponse(p.buildPageData(w, r, state, currentLayout))
 }
 
+func (p *LayoutManagerPage) renderGridOnly(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int) templ.Component {
+	return views.Grid(p.buildPageData(w, r, state, currentLayout))
+}
+
 // buildPageData populates the view layer's PageData from the plugin's
 // configuration and the current request's state. Per-block components are
 // resolved here so any heavy lifting (DB queries inside a widget) happens
@@ -55,9 +59,11 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 			Add:     prefix + routeAdd,
 			Remove:  prefix + routeRemove,
 			Resize:  prefix + routeResize,
+			Move:    prefix + routeMove,
 			Reorder: prefix + routeReorder,
 			Select:  prefix + routeSelect,
 			Save:    prefix + routeSave,
+			Reset:   prefix + routeReset,
 			CSS:     p.assetURL(r, "layout_manager.css"),
 			JS:      p.assetURL(r, "layout_manager.js"),
 		},
@@ -81,7 +87,7 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 	layoutQuery := "&layout=" + strconv.Itoa(currentLayout)
 	curBlocks := state.LayoutAt(currentLayout, p.layoutCount).Blocks
 	d.Blocks = make([]views.BlockData, 0, len(curBlocks))
-	for _, b := range curBlocks {
+	for blockIndex, b := range curBlocks {
 		spec := p.blockByKey(b.Type)
 		var comp templ.Component
 		if spec == nil {
@@ -108,6 +114,11 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 			ResizeIncURL:    d.URLs.Resize + idQuery + "&delta=1" + layoutQuery,
 			ResizeDecURL:    d.URLs.Resize + idQuery + "&delta=-1" + layoutQuery,
 			ResizeToggleURL: d.URLs.Resize + idQuery + "&cols=0" + layoutQuery,
+			ResizeURL:       d.URLs.Resize + idQuery + layoutQuery,
+			MoveLeftURL:     d.URLs.Move + idQuery + "&delta=-1" + layoutQuery,
+			MoveRightURL:    d.URLs.Move + idQuery + "&delta=1" + layoutQuery,
+			CanMoveLeft:     blockIndex > 0,
+			CanMoveRight:    blockIndex < len(curBlocks)-1,
 		})
 	}
 	// The reorder POST also needs to know which layout it's reordering.

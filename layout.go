@@ -27,18 +27,21 @@ import (
 type LayoutManagerPage struct {
 	*panel.CustomPanelPage
 
-	blocks        []BlockSpec
-	gridCols      int
-	layoutCount   int
-	showLockBtn   bool
-	sessionLoad   LoadHook
-	sessionSave   SaveHook
-	sessionExists stateExistsHook
-	saveHook      SaveHook
-	loadHook      LoadHook
-	allowReorder  bool
-	allowResize   bool
-	assetBasePath string // computed at register-time; relative to the panel
+	blocks          []BlockSpec
+	gridCols        int
+	layoutCount     int
+	showLockBtn     bool
+	sessionLoad     LoadHook
+	sessionSave     SaveHook
+	sessionExists   stateExistsHook
+	committedLoad   LoadHook
+	committedSave   SaveHook
+	committedExists stateExistsHook
+	saveHook        SaveHook
+	loadHook        LoadHook
+	allowReorder    bool
+	allowResize     bool
+	assetBasePath   string // computed at register-time; relative to the panel
 }
 
 // NewLayoutManagerPage constructs a layout-manager page rooted at the given
@@ -70,6 +73,10 @@ func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 	p.sessionLoad = sessionLoad(sessionKey)
 	p.sessionSave = sessionSave(sessionKey)
 	p.sessionExists = sessionStateExists(sessionKey)
+	committedKey := sessionKey + ":committed"
+	p.committedLoad = namedSessionLoad("layout-manager-committed", committedKey)
+	p.committedSave = namedSessionSave("layout-manager-committed", committedKey)
+	p.committedExists = namedSessionStateExists("layout-manager-committed", committedKey)
 	return p
 }
 
@@ -131,7 +138,7 @@ func (p *LayoutManagerPage) Resizeable(enabled bool) *LayoutManagerPage {
 }
 
 // SaveHook plugs in custom persistence (e.g. write to your database). The
-// hook is called whenever the user clicks the Save button. Returning an error
+// hook is called whenever the user clicks Done. Returning an error
 // surfaces a notification to the user.
 func (p *LayoutManagerPage) SaveHook(fn SaveHook) *LayoutManagerPage {
 	if fn != nil {
@@ -140,8 +147,8 @@ func (p *LayoutManagerPage) SaveHook(fn SaveHook) *LayoutManagerPage {
 	return p
 }
 
-// LoadHook plugs in custom retrieval (mirror of SaveHook). Called on each
-// page render and on each mutation to read the current state.
+// LoadHook plugs in custom retrieval (mirror of SaveHook). It seeds a user
+// session when no working draft exists yet.
 func (p *LayoutManagerPage) LoadHook(fn LoadHook) *LayoutManagerPage {
 	if fn != nil {
 		p.loadHook = fn

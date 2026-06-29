@@ -24,6 +24,13 @@ templ Grid(d *PageData) {
             x-sort:config="{ handle: '.lm-block-handle' }"
         }
     >
+        if d.AllowResize {
+            <div class="lm-grid-guide" aria-hidden="true">
+                for i := 0; i < d.GridColumns; i++ {
+                    <span class="lm-grid-guide-cell"></span>
+                }
+            </div>
+        }
         if len(d.Blocks) == 0 {
             <div class="lm-empty">
                 No blocks yet. Click Edit and pick a block to add.

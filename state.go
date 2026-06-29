@@ -167,6 +167,34 @@ func (l *Layout) Reorder(order []string) bool {
 	return changed
 }
 
+// Move shifts one block by delta positions while keeping every other block in
+// its relative order. Out-of-range moves are clamped to the nearest edge.
+func (l *Layout) Move(id string, delta int) bool {
+	_, from := l.Find(id)
+	if from < 0 || delta == 0 {
+		return false
+	}
+	to := from + delta
+	if to < 0 {
+		to = 0
+	}
+	if to >= len(l.Blocks) {
+		to = len(l.Blocks) - 1
+	}
+	if from == to {
+		return false
+	}
+
+	block := l.Blocks[from]
+	if from < to {
+		copy(l.Blocks[from:to], l.Blocks[from+1:to+1])
+	} else {
+		copy(l.Blocks[to+1:from+1], l.Blocks[to:from])
+	}
+	l.Blocks[to] = block
+	return true
+}
+
 // clampCols snaps n to [1, max], using max as the upper bound. Used after a
 // resize event and when re-rendering with a possibly-reduced GridColumns.
 func clampCols(n, max int) int {

@@ -74,6 +74,25 @@ func TestLayout_Reorder(t *testing.T) {
 	})
 }
 
+func TestLayout_Move(t *testing.T) {
+	l := Layout{Blocks: []Block{{ID: "a"}, {ID: "b"}, {ID: "c"}}}
+	if !l.Move("b", -1) {
+		t.Fatal("expected b to move left")
+	}
+	if got := []string{l.Blocks[0].ID, l.Blocks[1].ID, l.Blocks[2].ID}; got[0] != "b" || got[1] != "a" || got[2] != "c" {
+		t.Fatalf("expected [b a c], got %v", got)
+	}
+	if !l.Move("b", 1) {
+		t.Fatal("expected b to move right")
+	}
+	if l.Move("c", 1) {
+		t.Fatal("expected edge move to be a no-op")
+	}
+	if l.Move("missing", -1) {
+		t.Fatal("expected missing block move to be a no-op")
+	}
+}
+
 func TestLayoutState_LegacyMigration(t *testing.T) {
 	// Legacy flat shape must migrate into Layouts[0].
 	var s LayoutState

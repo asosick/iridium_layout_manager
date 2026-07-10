@@ -63,6 +63,9 @@ left/right buttons to reorder. Resize with the corner handle or the size
 buttons, and use `×` to remove. **Done** commits and locks the arrangement;
 **Reset** restores the last committed arrangement.
 
+Widgets are packed with a masonry-style grid, so a tall widget does not force
+unrelated shorter widgets to leave an empty row beneath them.
+
 ## Block kinds
 
 | Adapter | Use when |

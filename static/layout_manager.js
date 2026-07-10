@@ -40,6 +40,10 @@
         _resizeState: null,
         _resizeMoveHandler: null,
         _resizeEndHandler: null,
+        _masonryObserver: null,
+        _masonryFrame: null,
+        _afterSwapHandler: null,
+        _windowResizeHandler: null,
 
         init() {
             const select = this.$el.querySelector('[data-lm-type-select]');
@@ -81,6 +85,16 @@
                 }
             };
             this.$el.addEventListener('htmx:afterRequest', this._afterRequestHandler);
+
+            this._afterSwapHandler = (e) => {
+                if (e.target && this.$el.contains(e.target)) this.setupMasonry();
+            };
+            this.$el.addEventListener('htmx:afterSwap', this._afterSwapHandler);
+
+            this._windowResizeHandler = () => this.scheduleMasonry();
+            window.addEventListener('resize', this._windowResizeHandler, { passive: true });
+            this.$watch('editMode', () => this.$nextTick(() => this.scheduleMasonry()));
+            this.setupMasonry();
         },
 
         destroy() {
@@ -99,6 +113,22 @@
             if (this._afterRequestHandler) {
                 this.$el.removeEventListener('htmx:afterRequest', this._afterRequestHandler);
                 this._afterRequestHandler = null;
+            }
+            if (this._afterSwapHandler) {
+                this.$el.removeEventListener('htmx:afterSwap', this._afterSwapHandler);
+                this._afterSwapHandler = null;
+            }
+            if (this._windowResizeHandler) {
+                window.removeEventListener('resize', this._windowResizeHandler);
+                this._windowResizeHandler = null;
+            }
+            if (this._masonryObserver) {
+                this._masonryObserver.disconnect();
+                this._masonryObserver = null;
+            }
+            if (this._masonryFrame) {
+                window.cancelAnimationFrame(this._masonryFrame);
+                this._masonryFrame = null;
             }
             this.cleanupResize();
         },
@@ -195,6 +225,7 @@
             state.cols = Math.max(1, Math.min(state.startCols + delta, maxCols));
             state.block.dataset.cols = String(state.cols);
             this.updateResizeGuide();
+            this.scheduleMasonry();
         },
 
         updateResizeGuide() {
@@ -244,6 +275,63 @@
                 });
             }
             this._resizeState = null;
+        },
+
+        setupMasonry() {
+            if (this._masonryObserver) this._masonryObserver.disconnect();
+
+            const grid = this.$el.querySelector('[data-lm-grid]');
+            if (!grid) return;
+            const blocks = grid.querySelectorAll('[data-lm-block]');
+
+            if (typeof window.ResizeObserver === 'function') {
+                this._masonryObserver = new window.ResizeObserver(() => this.scheduleMasonry());
+                blocks.forEach(block => {
+                    const content = block.querySelector('.lm-block-content');
+                    this._masonryObserver.observe(content || block);
+                });
+            }
+            this.scheduleMasonry();
+        },
+
+        scheduleMasonry() {
+            if (this._masonryFrame) window.cancelAnimationFrame(this._masonryFrame);
+            this._masonryFrame = window.requestAnimationFrame(() => {
+                this._masonryFrame = null;
+                this.layoutMasonry();
+            });
+        },
+
+        layoutMasonry() {
+            const grid = this.$el.querySelector('[data-lm-grid]');
+            if (!grid) return;
+
+            const gridStyles = window.getComputedStyle(grid);
+            const rowHeight = parseFloat(gridStyles.getPropertyValue('--lm-masonry-row')) || 8;
+            const rowGap = parseFloat(gridStyles.rowGap) || 16;
+
+            grid.querySelectorAll('[data-lm-block]').forEach(block => {
+                const blockStyles = window.getComputedStyle(block);
+                const content = block.querySelector('.lm-block-content');
+                const controls = block.querySelector('.lm-block-controls');
+                const controlsHeight = controls && controls.offsetParent !== null ? controls.scrollHeight : 0;
+                const contentHeight = content ? content.scrollHeight : 0;
+                const internalGap = controlsHeight > 0 && contentHeight > 0
+                    ? parseFloat(blockStyles.rowGap || blockStyles.gap) || 0
+                    : 0;
+                const verticalChrome = (parseFloat(blockStyles.paddingTop) || 0)
+                    + (parseFloat(blockStyles.paddingBottom) || 0)
+                    + (parseFloat(blockStyles.borderTopWidth) || 0)
+                    + (parseFloat(blockStyles.borderBottomWidth) || 0);
+                const naturalHeight = Math.max(
+                    parseFloat(blockStyles.minHeight) || 0,
+                    controlsHeight + contentHeight + internalGap + verticalChrome,
+                );
+                const span = Math.max(1, Math.ceil((naturalHeight + rowGap) / (rowHeight + rowGap)));
+                block.style.gridRowEnd = 'span ' + span;
+            });
+
+            grid.classList.add('lm-masonry-ready');
         },
 
         // Wait until Sortable finishes its current event before reading the
@@ -342,6 +430,7 @@
                             console.warn('[layoutmgr] Alpine.initTree warn', e);
                         }
                     }
+                    this.setupMasonry();
                 })
                 .catch(err => console.error('[layoutmgr] reorder failed', err))
                 .finally(() => {

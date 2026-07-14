@@ -7,11 +7,9 @@ page, drag-to-reorder, resize their column span, and commit the result. Layouts
 persist per-user (cookie/session by default; pluggable for DB-backed storage).
 
 Ported from the [FilamentPHP Filament Layout Manager](https://github.com/asosick/filament-layout-manager)
-plugin to Iridium's HTMX + Alpine + templ stack. The port was done essentially 100% by claude/codex partly as an
-exercise to see how well it handles direct ports.
+plugin to Iridium's HTMX + Alpine + templ stack.
 
-Drag-to-reorder is powered by the Alpine Sort plugin that Iridium already bundles, so the plugin ships only
-a tiny JS helper and a CSS file.
+Drag-to-reorder is powered by the Alpine Sort plugin that Iridium already bundles.
 
 This plugin can serve as a starting point for understanding how to build your own Iridium plugin.
 The beauty of Go is its duck typing lets you mix and match your custom code into Iridium fairly easily.
@@ -86,7 +84,7 @@ layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     Heading("My Dashboard").   // override the H1
     ShowLockButton(true).      // hide to keep the page permanently editable
     Reorderable(true).         // enable drag-to-reorder
-    Resizeable(true).          // enable +/-/full-width controls
+    Resizable(true).           // enable resize controls
     SaveHook(myDBSave).        // optional — persist to DB when Done is clicked
     LoadHook(myDBLoad)         // optional — seed a new user session from DB
 ```

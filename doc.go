@@ -7,8 +7,7 @@
 // This is a Go port of the FilamentPHP "Filament Layout Manager" plugin
 // (https://github.com/asosick/filament-layout-manager), adapted to Iridium's
 // HTMX + Alpine + templ stack. The Alpine sort plugin (already bundled by
-// iridium-core) handles drag-to-reorder, so the plugin ships only a tiny JS
-// helper and a CSS file.
+// iridium-core) handles drag-to-reorder.
 //
 // Basic usage:
 //

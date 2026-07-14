@@ -1,6 +1,9 @@
 package layoutmgr
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAssetVersion(t *testing.T) {
 	jsVersion := assetVersion("layout_manager.js")
@@ -12,5 +15,29 @@ func TestAssetVersion(t *testing.T) {
 	}
 	if got := assetVersion("../missing.js"); got != "" {
 		t.Fatalf("expected no version for missing asset, got %q", got)
+	}
+}
+
+func TestResizeGuideDoesNotExposeMasonryRows(t *testing.T) {
+	css, err := staticFS.ReadFile("static/layout_manager.css")
+	if err != nil {
+		t.Fatalf("read embedded CSS: %v", err)
+	}
+	if strings.Contains(string(css), "repeating-linear-gradient") {
+		t.Fatal("resize guide should show columns, not internal masonry rows")
+	}
+}
+
+func TestReorderUsesHTMXSwapLifecycle(t *testing.T) {
+	js, err := staticFS.ReadFile("static/layout_manager.js")
+	if err != nil {
+		t.Fatalf("read embedded JavaScript: %v", err)
+	}
+	source := string(js)
+	if !strings.Contains(source, "window.htmx.swap(grid, html") {
+		t.Fatal("reorder should use the htmx swap lifecycle")
+	}
+	if strings.Contains(source, "grid.outerHTML = html") {
+		t.Fatal("reorder should not bypass htmx with a direct outerHTML replacement")
 	}
 }

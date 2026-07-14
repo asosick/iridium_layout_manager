@@ -358,16 +358,9 @@
                 return;
             }
 
-            // Iridium enforces CSRF on every mutating request: a POST without a
-            // valid X-CSRF-Token is rejected with 403. htmx-driven mutations
-            // (add/remove/resize) get the token injected automatically via the
-            // body's :hx-headers binding, but this is a RAW fetch — htmx isn't
-            // involved — so we must read the current token off the Alpine
-            // 'security' store and send it ourselves. Without this the reorder
-            // POST is silently rejected: Alpine's sort has already moved the DOM
-            // visually, so the new order LOOKS applied, but nothing persists and
-            // revisiting the page shows the old order. That was the "layout not
-            // placed back in the same spots" bug.
+            // Reorder is generated from the final DOM order rather than an
+            // element, so it cannot use an hx-post attribute. Keep its CSRF
+            // token synchronized with Iridium's rotating security store.
             const security = (window.Alpine && typeof window.Alpine.store === 'function')
                 ? window.Alpine.store('security')
                 : null;
@@ -386,13 +379,6 @@
                 body: JSON.stringify({ order }),
             })
                 .then(r => {
-                    // Iridium ROTATES the CSRF token on every successful mutating
-                    // request and returns the fresh one in the response header.
-                    // htmx normally feeds that back into the security store (via
-                    // its htmx:afterRequest listener), but a raw fetch bypasses
-                    // that — so we update the store ourselves. Skipping this would
-                    // leave the store holding a now-stale token and 403 the NEXT
-                    // htmx POST (add/remove/resize) on the page.
                     const t = r.headers.get('X-CSRF-Token');
                     if (t && security) security.csrf = t;
                     if (!r.ok) {
@@ -401,36 +387,11 @@
                     return r.text();
                 })
                 .then(html => {
-                    // Replace the grid with the server's freshly-rendered
-                    // copy so order, cols, and any newly-resolved widgets
-                    // come from the source of truth.
-                    grid.outerHTML = html;
-
-                    // CRITICAL: after a raw outerHTML swap, htmx and Alpine
-                    // don't automatically know about the new DOM. Without
-                    // re-processing, the freshly-rendered ×/+/− buttons
-                    // don't get bound to htmx — so the FIRST click hits the
-                    // stale (pre-reorder) button still wired up, which is
-                    // why resizing widget A after a swap appeared to affect
-                    // widget B for one click. We rescan both subsystems
-                    // against the new grid so all the hx-post URLs the
-                    // server just rendered fire correctly.
-                    const newGrid = this.$el.querySelector('[data-lm-grid]');
-                    if (!newGrid) return;
-                    if (window.htmx && typeof window.htmx.process === 'function') {
-                        try { window.htmx.process(newGrid); } catch (e) {
-                            console.error('[layoutmgr] htmx.process failed', e);
-                        }
+                    if (!window.htmx || typeof window.htmx.swap !== 'function') {
+                        throw new Error('[layoutmgr] htmx swap API unavailable');
                     }
-                    if (window.Alpine && typeof window.Alpine.initTree === 'function') {
-                        try { window.Alpine.initTree(newGrid); } catch (e) {
-                            // Re-initing a tree already initialised by Alpine
-                            // when x-data was processed via the parent is
-                            // usually harmless; log and continue.
-                            console.warn('[layoutmgr] Alpine.initTree warn', e);
-                        }
-                    }
-                    this.setupMasonry();
+                    // Let htmx own teardown, initialization, and swap events.
+                    window.htmx.swap(grid, html, { swapStyle: 'outerHTML' });
                 })
                 .catch(err => console.error('[layoutmgr] reorder failed', err))
                 .finally(() => {

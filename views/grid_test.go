@@ -25,3 +25,15 @@ func TestGridUsesNativeSortEventBridge(t *testing.T) {
 		t.Fatalf("expected resize column guides, got %s", html)
 	}
 }
+
+func TestGridOmitsResizeGuidesWhenResizeIsDisabled(t *testing.T) {
+	var out bytes.Buffer
+	d := &PageData{AllowReorder: true, GridColumns: 2}
+
+	if err := Grid(d).Render(context.Background(), &out); err != nil {
+		t.Fatalf("render grid: %v", err)
+	}
+	if html := out.String(); strings.Contains(html, "lm-grid-guide") {
+		t.Fatalf("resize guides should not render when resizing is disabled, got %s", html)
+	}
+}

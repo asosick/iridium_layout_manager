@@ -102,7 +102,7 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 			// this override (and the client echoes it back on data refreshes), so
 			// each instance stays independently scoped without cloning the
 			// definition. Harmless for non-table blocks.
-			blockReq := r.WithContext(context.WithValue(r.Context(), ctxkeys.FEIdOverride, b.ID))
+			blockReq := r.WithContext(context.WithValue(r.Context(), ctxkeys.FEIDOverride, b.ID))
 			comp = spec.Render(w, blockReq)
 		}
 		idQuery := "?id=" + url.QueryEscape(b.ID)

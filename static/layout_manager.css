@@ -90,7 +90,6 @@
 .lm-grid {
     --lm-masonry-row: 8px;
     --lm-row-gap: 1rem;
-    --lm-guide-pitch: calc(var(--lm-masonry-row) + var(--lm-row-gap));
     display: grid;
     grid-template-columns: repeat(var(--lm-cols, 2), minmax(0, 1fr));
     column-gap: 1rem;
@@ -114,13 +113,6 @@
     pointer-events: none;
     transition: opacity 120ms ease;
     z-index: 0;
-    background-image: repeating-linear-gradient(
-        to bottom,
-        transparent 0,
-        transparent calc(var(--lm-guide-pitch) - 1px),
-        color-mix(in srgb, var(--color-primary) 35%, transparent) calc(var(--lm-guide-pitch) - 1px),
-        color-mix(in srgb, var(--color-primary) 35%, transparent) var(--lm-guide-pitch)
-    );
 }
 
 .lm-grid-guide-cell {

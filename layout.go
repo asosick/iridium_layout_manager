@@ -131,10 +131,16 @@ func (p *LayoutManagerPage) Reorderable(enabled bool) *LayoutManagerPage {
 	return p
 }
 
-// Resizeable enables +/- column-span controls in edit mode (default true).
-func (p *LayoutManagerPage) Resizeable(enabled bool) *LayoutManagerPage {
+// Resizable enables the column-span controls in edit mode (default true).
+func (p *LayoutManagerPage) Resizable(enabled bool) *LayoutManagerPage {
 	p.allowResize = enabled
 	return p
+}
+
+// Resizeable is retained for compatibility. Use Resizable in new code.
+// Deprecated: use Resizable.
+func (p *LayoutManagerPage) Resizeable(enabled bool) *LayoutManagerPage {
+	return p.Resizable(enabled)
 }
 
 // SaveHook plugs in custom persistence (e.g. write to your database). The
@@ -254,13 +260,13 @@ func (p *LayoutManagerPage) ContentSizeFn(fn func(ctx *ctxPanel.PanelPage) enum.
 
 // HasBreadCrumbs enables breadcrumbs for the page.
 func (p *LayoutManagerPage) HasBreadCrumbs() *LayoutManagerPage {
-	p.CustomPanelPage.HasBreadCrumbs()
+	p.CustomPanelPage.HasBreadcrumbs()
 	return p
 }
 
 // HasBreadCrumbsFn is a callback alias for HasBreadCrumbs.
 func (p *LayoutManagerPage) HasBreadCrumbsFn(fn func(ctx *ctxPanel.PanelPage) bool) *LayoutManagerPage {
-	p.CustomPanelPage.HasBreadCrumbsFn(fn)
+	p.CustomPanelPage.HasBreadcrumbsFn(fn)
 	return p
 }
 

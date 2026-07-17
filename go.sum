@@ -22,6 +22,10 @@ github.com/iridiumgo/iridium v0.0.0-20260624112708-95e7733ba083 h1:G7jNoqpMCHY+f
 github.com/iridiumgo/iridium v0.0.0-20260624112708-95e7733ba083/go.mod h1:rqmlIGuI2IpB9M1KLVVmuWEdDOBLL5W6bu41eilXGCI=
 github.com/iridiumgo/iridium v0.0.0-20260710204328-56aa69d82bd0 h1:UgeWoR/FJO+GlthL/a3HmDd+cEXvta6uqcLw0QBH0qk=
 github.com/iridiumgo/iridium v0.0.0-20260710204328-56aa69d82bd0/go.mod h1:rqmlIGuI2IpB9M1KLVVmuWEdDOBLL5W6bu41eilXGCI=
+github.com/iridiumgo/iridium v0.0.0-20260717145540-ef7db24fac77 h1:eMvpRTixkjbYCsXtibOs2pQwGxLByhEwfTdJjH1on84=
+github.com/iridiumgo/iridium v0.0.0-20260717145540-ef7db24fac77/go.mod h1:rqmlIGuI2IpB9M1KLVVmuWEdDOBLL5W6bu41eilXGCI=
+github.com/iridiumgo/iridium v0.0.0-20260717151600-763c165ef65b h1:Lz6tJDyeiII8f/TIi27DpvziZoa8uj7OQTgaB+QKdJs=
+github.com/iridiumgo/iridium v0.0.0-20260717151600-763c165ef65b/go.mod h1:rqmlIGuI2IpB9M1KLVVmuWEdDOBLL5W6bu41eilXGCI=
 github.com/iridiumgo/iridium-icons v1.0.7 h1:ocXxFwu9G+kOYu8VgKIILmk0916hGcnErGNY7eVwIGk=
 github.com/iridiumgo/iridium-icons v1.0.7/go.mod h1:FTXD2M+3gIbsYDsh/ddWQvjEClO7B2rgB+EHwH03mFY=
 github.com/iridiumgo/iridium-icons v1.0.9 h1:Vmcmil79XPkUCNPVeroFphzcdd4h0RT22MnR3zVIB0M=

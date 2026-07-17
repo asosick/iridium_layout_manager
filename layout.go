@@ -207,10 +207,10 @@ func (p *LayoutManagerPage) NavigationHidden() *LayoutManagerPage {
 	return p
 }
 
-// NavigationTabHidden hides this page from the sub-page tab strip (still shown
-// in the sidebar).
-func (p *LayoutManagerPage) NavigationTabHidden() *LayoutManagerPage {
-	p.CustomPanelPage.NavigationTabHidden()
+// PageTabHidden hides this page from the page-tab strip while leaving it in the
+// sidebar.
+func (p *LayoutManagerPage) PageTabHidden() *LayoutManagerPage {
+	p.CustomPanelPage.PageTabHidden()
 	return p
 }
 

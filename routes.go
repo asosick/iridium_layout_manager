@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -228,10 +229,40 @@ func (p *LayoutManagerPage) handleSelect(w http.ResponseWriter, r *http.Request)
 	r = attachWriter(r, w)
 	idx := p.layoutIndex(r)
 	state := p.currentState(r)
+	r = withCurrentPageQuery(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := p.renderGrid(w, r, state, idx).Render(r.Context(), w); err != nil {
 		logger.Error("[layoutmgr] render grid (select): %v", err)
 	}
+}
+
+// withCurrentPageQuery gives widgets the page URL state that caused this HTMX
+// partial render. Selector request values win so the requested layout cannot be
+// replaced by a stale value from the browser URL.
+func withCurrentPageQuery(r *http.Request) *http.Request {
+	currentURL := r.Header.Get("HX-Current-URL")
+	if currentURL == "" {
+		return r
+	}
+
+	parsed, err := url.Parse(currentURL)
+	if err != nil {
+		return r
+	}
+
+	query := parsed.Query()
+	for key, values := range r.URL.Query() {
+		query.Del(key)
+		for _, value := range values {
+			query.Add(key, value)
+		}
+	}
+
+	clone := r.Clone(r.Context())
+	cloneURL := *r.URL
+	cloneURL.RawQuery = query.Encode()
+	clone.URL = &cloneURL
+	return clone
 }
 
 // handleSave commits the current draft when Done is clicked and emits an

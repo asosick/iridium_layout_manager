@@ -6,7 +6,7 @@ require (
 	github.com/a-h/templ v0.3.1020
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/sessions v1.4.0
-	github.com/iridiumgo/iridium v0.0.0-20260710204328-56aa69d82bd0
+	github.com/iridiumgo/iridium v0.0.0-20260717151600-763c165ef65b
 	github.com/iridiumgo/iridium-icons v1.0.9
 )
 

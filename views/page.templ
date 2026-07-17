@@ -17,6 +17,7 @@ type PageData struct {
     ShowLockButton bool
     AllowReorder   bool
     AllowResize    bool
+    ZenEnabled     bool
     // Multi-layout (multi-page) support.
     LayoutCount   int    // total customizable pages (>=1)
     CurrentLayout int    // index of the layout currently rendered
@@ -96,7 +97,21 @@ templ LayoutManagerComponent(d *PageData) {
         data-lm-lock-after-done={ strconv.FormatBool(d.ShowLockButton) }
         data-lm-edit-default={ strconv.FormatBool(!d.ShowLockButton) }
     >
-        @Toolbar(d)
+        <template x-teleport=".ir-panel-page-actions">
+            @Toolbar(d)
+        </template>
+        if d.ZenEnabled {
+            <button
+                type="button"
+                class="ir-btn-outline lm-icon-btn lm-zen-exit"
+                x-show="zenMode"
+                x-cloak
+                @click="exitZen"
+            >
+                @icons.Minimize.Component()
+                <span>Exit Zen</span>
+            </button>
+        }
         @Grid(d)
     </div>
 }
@@ -160,6 +175,12 @@ templ Toolbar(d *PageData) {
                 <button type="button" class="ir-btn-outline lm-icon-btn" x-show="!editMode" @click="startEditing">
                     @icons.Lock.Component()
                     <span>Edit</span>
+                </button>
+            }
+            if d.ZenEnabled {
+                <button type="button" class="ir-btn-outline lm-icon-btn" @click="enterZen">
+                    @icons.Focus.Component()
+                    <span>Zen</span>
                 </button>
             }
         </div>

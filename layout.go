@@ -18,7 +18,7 @@ import (
 // dashboard blocks (widgets or arbitrary templ components). It's a drop-in
 // page — register it with your panel like any other:
 //
-//	panel.Pages(layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
+//	panel.PanelItems(layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
 //	    Blocks(...).GridColumns(3))
 //
 // Persistence defaults to the iridium session store, so layouts survive across
@@ -41,6 +41,7 @@ type LayoutManagerPage struct {
 	loadHook        LoadHook
 	allowReorder    bool
 	allowResize     bool
+	zenEnabled      bool
 	assetBasePath   string // computed at register-time; relative to the panel
 }
 
@@ -107,6 +108,14 @@ func (p *LayoutManagerPage) LayoutCount(n int) *LayoutManagerPage {
 		n = 1
 	}
 	p.layoutCount = n
+	return p
+}
+
+// Zen adds a header action that hides the page header so the layout widgets
+// can use the full content area. An Exit Zen button remains available while
+// the header is hidden.
+func (p *LayoutManagerPage) Zen() *LayoutManagerPage {
+	p.zenEnabled = true
 	return p
 }
 

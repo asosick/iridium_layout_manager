@@ -18,5 +18,5 @@
 //	    ).
 //	    GridColumns(3)
 //
-//	panel.Pages(layoutPage)
+//	panel.PanelItems(layoutPage)
 package layoutmgr

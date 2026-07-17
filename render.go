@@ -49,6 +49,7 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 		ShowLockButton: p.showLockBtn,
 		AllowReorder:   p.allowReorder,
 		AllowResize:    p.allowResize,
+		ZenEnabled:     p.zenEnabled,
 		LayoutCount:    p.layoutCount,
 		CurrentLayout:  currentLayout,
 		LayoutContent:  state.ContentFlags(p.layoutCount),

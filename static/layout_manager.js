@@ -30,6 +30,8 @@
         // Endpoint the grid is swapped from when switching pages.
         selectUrl: '',
         lockAfterDone: true,
+        zenMode: false,
+        _pageHeader: null,
         // Prevent Save from racing the session cookie written by reorder.
         reorderPending: false,
         // Bound document keydown handler, kept so we can detach on destroy.
@@ -98,6 +100,7 @@
         },
 
         destroy() {
+            this.setZenMode(false);
             if (this._hotkeyHandler) {
                 document.removeEventListener('keydown', this._hotkeyHandler);
                 this._hotkeyHandler = null;
@@ -170,6 +173,23 @@
 
         startEditing() {
             this.editMode = true;
+        },
+
+        enterZen() {
+            this.setZenMode(true);
+        },
+
+        exitZen() {
+            this.setZenMode(false);
+        },
+
+        setZenMode(enabled) {
+            const page = this.$el.closest('.ir-panel-page');
+            const header = this._pageHeader || (page && page.querySelector(':scope > .ir-panel-page-header'));
+            if (!header) return;
+            this._pageHeader = header;
+            this.zenMode = enabled;
+            header.hidden = enabled;
         },
 
         startResize(e, handle) {

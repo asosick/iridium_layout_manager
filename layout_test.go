@@ -13,3 +13,10 @@ func TestResizableBuilders(t *testing.T) {
 		t.Fatal("deprecated Resizeable alias should remain compatible")
 	}
 }
+
+func TestZenBuilder(t *testing.T) {
+	p := NewLayoutManagerPage("Dashboard", "dashboard").Zen()
+	if !p.zenEnabled {
+		t.Fatal("Zen should enable the reversible header control")
+	}
+}

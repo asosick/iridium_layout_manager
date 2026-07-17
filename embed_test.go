@@ -41,3 +41,17 @@ func TestReorderUsesHTMXSwapLifecycle(t *testing.T) {
 		t.Fatal("reorder should not bypass htmx with a direct outerHTML replacement")
 	}
 }
+
+func TestZenModeRestoresThePageHeader(t *testing.T) {
+	js, err := staticFS.ReadFile("static/layout_manager.js")
+	if err != nil {
+		t.Fatalf("read embedded JavaScript: %v", err)
+	}
+	source := string(js)
+	if !strings.Contains(source, "destroy() {\n            this.setZenMode(false);") {
+		t.Fatal("destroy should restore a page header hidden by Zen mode")
+	}
+	if !strings.Contains(source, "header.hidden = enabled") {
+		t.Fatal("Zen mode should toggle the owning Iridium page header")
+	}
+}

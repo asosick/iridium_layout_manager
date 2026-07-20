@@ -36,9 +36,9 @@
         reorderPending: false,
         // Bound document keydown handler, kept so we can detach on destroy.
         _hotkeyHandler: null,
+        _zenEscapeHandler: null,
         _sortHandler: null,
         _pointerDownHandler: null,
-        _afterRequestHandler: null,
         _resizeState: null,
         _resizeMoveHandler: null,
         _resizeEndHandler: null,
@@ -65,6 +65,11 @@
             this._hotkeyHandler = (e) => this.onHotkey(e);
             document.addEventListener('keydown', this._hotkeyHandler);
 
+            // Capture Escape before page-level shortcuts so leaving Zen mode
+            // cannot trigger another action on the same key press.
+            this._zenEscapeHandler = (e) => this.onZenEscape(e);
+            window.addEventListener('keydown', this._zenEscapeHandler, true);
+
             // Listen to SortableJS directly. Alpine's CSP evaluator can move
             // the elements while still failing to invoke an x-sort expression.
             this._sortHandler = (e) => {
@@ -78,15 +83,6 @@
                 if (handle && this.$el.contains(handle)) this.startResize(e, handle);
             };
             this.$el.addEventListener('pointerdown', this._pointerDownHandler);
-
-            this._afterRequestHandler = (e) => {
-                const source = e.detail && e.detail.elt;
-                if (!source || !source.matches('[data-lm-done]')) return;
-                if (e.detail.successful !== false && this.lockAfterDone) {
-                    this.editMode = false;
-                }
-            };
-            this.$el.addEventListener('htmx:afterRequest', this._afterRequestHandler);
 
             this._afterSwapHandler = (e) => {
                 if (e.target && this.$el.contains(e.target)) this.setupMasonry();
@@ -105,6 +101,10 @@
                 document.removeEventListener('keydown', this._hotkeyHandler);
                 this._hotkeyHandler = null;
             }
+            if (this._zenEscapeHandler) {
+                window.removeEventListener('keydown', this._zenEscapeHandler, true);
+                this._zenEscapeHandler = null;
+            }
             if (this._sortHandler) {
                 this.$el.removeEventListener('sort', this._sortHandler);
                 this._sortHandler = null;
@@ -112,10 +112,6 @@
             if (this._pointerDownHandler) {
                 this.$el.removeEventListener('pointerdown', this._pointerDownHandler);
                 this._pointerDownHandler = null;
-            }
-            if (this._afterRequestHandler) {
-                this.$el.removeEventListener('htmx:afterRequest', this._afterRequestHandler);
-                this._afterRequestHandler = null;
             }
             if (this._afterSwapHandler) {
                 this.$el.removeEventListener('htmx:afterSwap', this._afterSwapHandler);
@@ -175,12 +171,25 @@
             this.editMode = true;
         },
 
+        finishEditing(e) {
+            if (e.detail && e.detail.successful !== false && this.lockAfterDone) {
+                this.editMode = false;
+            }
+        },
+
         enterZen() {
             this.setZenMode(true);
         },
 
         exitZen() {
             this.setZenMode(false);
+        },
+
+        onZenEscape(e) {
+            if (!this.zenMode || e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            this.exitZen();
         },
 
         setZenMode(enabled) {

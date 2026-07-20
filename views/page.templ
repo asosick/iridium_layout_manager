@@ -165,6 +165,7 @@ templ Toolbar(d *PageData) {
                     hx-post={ d.URLs.Save }
                     hx-swap="none"
                     data-lm-done
+                    @htmx:after-request="finishEditing($event)"
                     :disabled="reorderPending"
                 >
                     @icons.Check.Component()

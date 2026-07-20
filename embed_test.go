@@ -55,3 +55,42 @@ func TestZenModeRestoresThePageHeader(t *testing.T) {
 		t.Fatal("Zen mode should toggle the owning Iridium page header")
 	}
 }
+
+func TestZenModeCapturesEscapeAndUsesAnOpaqueExitControl(t *testing.T) {
+	js, err := staticFS.ReadFile("static/layout_manager.js")
+	if err != nil {
+		t.Fatalf("read embedded JavaScript: %v", err)
+	}
+	source := string(js)
+	for _, expected := range []string{
+		"window.addEventListener('keydown', this._zenEscapeHandler, true)",
+		"window.removeEventListener('keydown', this._zenEscapeHandler, true)",
+		"e.stopPropagation()",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("Zen Escape handling should contain %q", expected)
+		}
+	}
+
+	css, err := staticFS.ReadFile("static/layout_manager.css")
+	if err != nil {
+		t.Fatalf("read embedded CSS: %v", err)
+	}
+	if !strings.Contains(string(css), "background: var(--color-background);") {
+		t.Fatal("Exit Zen should use an opaque theme background")
+	}
+}
+
+func TestDoneHandlerSupportsTeleportedToolbar(t *testing.T) {
+	js, err := staticFS.ReadFile("static/layout_manager.js")
+	if err != nil {
+		t.Fatalf("read embedded JavaScript: %v", err)
+	}
+	source := string(js)
+	if !strings.Contains(source, "finishEditing(e) {") {
+		t.Fatal("Done should expose a handler within the teleported Alpine scope")
+	}
+	if strings.Contains(source, "this.$el.addEventListener('htmx:afterRequest'") {
+		t.Fatal("Done should not rely on HTMX events bubbling into the pre-teleport root")
+	}
+}

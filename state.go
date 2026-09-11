@@ -108,6 +108,22 @@ func (s *LayoutState) FirstUsedLayout(count int) int {
 	return 0
 }
 
+// NextPopulatedLayout returns the next layout with content after current,
+// wrapping to the beginning. The current layout is never returned.
+func (s *LayoutState) NextPopulatedLayout(current, count int) (int, bool) {
+	flags := s.ContentFlags(count)
+	if current < 0 || current >= len(flags) {
+		current = len(flags) - 1
+	}
+	for offset := 1; offset <= len(flags); offset++ {
+		index := (current + offset) % len(flags)
+		if index != current && flags[index] {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
 // Find returns the block with the given ID and its index within this layout, or
 // (nil, -1) if not present.
 func (l *Layout) Find(id string) (*Block, int) {

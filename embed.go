@@ -1,70 +1,19 @@
 package layoutmgr
 
 import (
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
-	"io"
-	"net/http"
-	"path"
-	"strings"
+
+	"github.com/iridiumgo/iridium/core/asset"
 )
 
 //go:embed static
 var staticFS embed.FS
 
-// assetNames returns the file names (without the "static/" prefix) the plugin
-// ships, so registerAssetRoutes can register a handler per file.
-func assetNames() []string {
-	entries, err := staticFS.ReadDir("static")
-	if err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() {
-			out = append(out, e.Name())
-		}
-	}
-	return out
-}
-
-// assetVersion fingerprints embedded content so rebuilt assets never reuse a
-// browser-cached URL from an older plugin binary.
-func assetVersion(name string) string {
-	contents, err := staticFS.ReadFile("static/" + path.Base(name))
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(contents)
-	return hex.EncodeToString(sum[:6])
-}
-
-// serveAsset streams one of the embedded files with a reasonable Content-Type
-// and a one-hour cache. Files are tiny so we just read them whole.
-func serveAsset(w http.ResponseWriter, _ *http.Request, name string) {
-	// Strip any sneaky path components — name comes from a route pattern we
-	// control but defence-in-depth is cheap.
-	name = path.Base(name)
-	f, err := staticFS.Open("static/" + name)
-	if err != nil {
-		http.NotFound(w, nil)
-		return
-	}
-	defer f.Close()
-
-	w.Header().Set("Content-Type", contentTypeFor(name))
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = io.Copy(w, f)
-}
-
-func contentTypeFor(name string) string {
-	switch {
-	case strings.HasSuffix(name, ".css"):
-		return "text/css; charset=utf-8"
-	case strings.HasSuffix(name, ".js"):
-		return "application/javascript; charset=utf-8"
-	default:
-		return "application/octet-stream"
-	}
+func init() {
+	// Register globally so Alpine knows about the component before any HTMX
+	// fragment containing x-data is scanned.
+	asset.Register(
+		asset.CSS("layout-manager", staticFS, "static/layout_manager.css").Package("layout-manager"),
+		asset.JS("layout-manager", staticFS, "static/layout_manager.js").Package("layout-manager"),
+	)
 }

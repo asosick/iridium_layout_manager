@@ -1,6 +1,7 @@
 package layoutmgr
 
 import (
+	"maps"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -12,6 +13,8 @@ import (
 	"github.com/iridiumgo/iridium/core/page/panel"
 	"github.com/iridiumgo/iridium/core/widget"
 	"github.com/iridiumgo/iridium/network/wrapper"
+
+	"github.com/asosick/iridium_layout_manager/views"
 )
 
 // LayoutManagerPage is an Iridium panel page that lets the end-user arrange
@@ -255,6 +258,25 @@ func (p *LayoutManagerPage) DescriptionFn(fn func(ctx *ctxPanel.PanelPage) strin
 	return p
 }
 
+// Attributes adds attributes to Iridium's native panel-page root.
+func (p *LayoutManagerPage) Attributes(attributes templ.Attributes) *LayoutManagerPage {
+	p.CustomPanelPage.Attributes(attributes)
+	return p
+}
+
+// HeaderAttributes adds attributes to Iridium's native panel-page header.
+func (p *LayoutManagerPage) HeaderAttributes(attributes templ.Attributes) *LayoutManagerPage {
+	p.CustomPanelPage.HeaderAttributes(attributes)
+	return p
+}
+
+// HeaderComponents renders components before the layout manager's native
+// toolbar in Iridium's page action area.
+func (p *LayoutManagerPage) HeaderComponents(components ...templ.Component) *LayoutManagerPage {
+	p.CustomPanelPage.HeaderComponents(components...)
+	return p
+}
+
 // ContentSize sets the page content width (see enum.PageSize).
 func (p *LayoutManagerPage) ContentSize(value enum.PageSize) *LayoutManagerPage {
 	p.CustomPanelPage.ContentSize(value)
@@ -269,13 +291,13 @@ func (p *LayoutManagerPage) ContentSizeFn(fn func(ctx *ctxPanel.PanelPage) enum.
 
 // HasBreadCrumbs enables breadcrumbs for the page.
 func (p *LayoutManagerPage) HasBreadCrumbs() *LayoutManagerPage {
-	p.CustomPanelPage.HasBreadcrumbs()
+	p.CustomPanelPage.Breadcrumbs()
 	return p
 }
 
 // HasBreadCrumbsFn is a callback alias for HasBreadCrumbs.
 func (p *LayoutManagerPage) HasBreadCrumbsFn(fn func(ctx *ctxPanel.PanelPage) bool) *LayoutManagerPage {
-	p.CustomPanelPage.HasBreadcrumbsFn(fn)
+	p.CustomPanelPage.BreadcrumbsFn(fn)
 	return p
 }
 
@@ -353,13 +375,31 @@ func (p *LayoutManagerPage) GetComponent(w http.ResponseWriter, r *http.Request)
 
 	state := p.currentState(r)
 
-	// Per-request snapshot — local copy, never shared. The chrome resolver
-	// reads ContentObj off this copy, leaving the page-level instance
-	// untouched for the next request.
-	cppCopy := *p.CustomPanelPage
-	cppCopy.ContentObj = p.renderPage(w, r, state)
+	// Per-request snapshot — local copy, never shared. The native Iridium page
+	// owns the Alpine controller and renders the layout toolbar directly in its
+	// header action area, so every control remains inside the same lifecycle.
+	d := p.buildInitialPageData(w, r, state)
+	cppCopy := p.cloneCustomPanelPage()
+	cppCopy.ContentObj = views.LayoutManagerContent(d)
+	cppCopy.AttributesObj = make(templ.Attributes, len(p.CustomPanelPage.AttributesObj)+len(views.PageAttributes(d)))
+	maps.Copy(cppCopy.AttributesObj, p.CustomPanelPage.AttributesObj)
+	maps.Copy(cppCopy.AttributesObj, views.PageAttributes(d))
+	cppCopy.HeaderAttributesObj = make(templ.Attributes, len(p.CustomPanelPage.HeaderAttributesObj)+len(views.HeaderAttributes(d)))
+	maps.Copy(cppCopy.HeaderAttributesObj, p.CustomPanelPage.HeaderAttributesObj)
+	maps.Copy(cppCopy.HeaderAttributesObj, views.HeaderAttributes(d))
+	cppCopy.HeaderComponentsArr = append(
+		append([]templ.Component{}, p.CustomPanelPage.HeaderComponentsArr...),
+		views.Toolbar(d),
+	)
 
 	return cppCopy.GetComponent(w, r)
+}
+
+func (p *LayoutManagerPage) cloneCustomPanelPage() panel.CustomPanelPage {
+	page := *p.CustomPanelPage
+	resolvable := *p.CustomPanelPage.PanelPageResolvable
+	page.PanelPageResolvable = &resolvable
+	return page
 }
 
 // RegisterRoutes registers the main page route (delegated to BasePage) plus
@@ -408,10 +448,9 @@ func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 		wb.w.RegisterRoutes(scoped)
 	}
 
-	// Plugin htmx endpoints + embedded static assets — these live under the
-	// page slug, so they go on the pageScoped (prefix) mux.
+	// Plugin htmx endpoints live under the page slug, so they go on the
+	// pageScoped (prefix) mux.
 	p.registerLayoutRoutes(pageScoped)
-	p.registerAssetRoutes(pageScoped)
 
 	// MUST be registered AFTER widget actionables have been hooked into the
 	// Carrier — RegisterCarrier walks the Carrier graph once and registers

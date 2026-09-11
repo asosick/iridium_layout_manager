@@ -25,7 +25,8 @@ const (
 	routeSelect  = "/lm/select"  // ?layout=N — switch the displayed layout
 	routeSave    = "/lm/save"
 	routeReset   = "/lm/reset"
-	routeAssets  = "/lm/static/" // serves /lm/static/<file>
+
+	nextLayoutHeader = "X-Iridium-Layout-Manager-Next-Layout"
 )
 
 func (p *LayoutManagerPage) registerLayoutRoutes(mux wrapper.IMux) {
@@ -292,6 +293,13 @@ func (p *LayoutManagerPage) handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
 	}
+	current := p.layoutIndex(r)
+	content := state.ContentFlags(p.layoutCount)
+	if !content[current] {
+		if next, ok := state.NextPopulatedLayout(current, p.layoutCount); ok {
+			w.Header().Set(nextLayoutHeader, strconv.Itoa(next))
+		}
+	}
 	// Every mutation (add/remove/resize/reorder) already persists immediately
 	// through persistAndRender, so Done only needs to commit and
 	// confirm — there's nothing new to render. Re-rendering the grid here and
@@ -397,35 +405,7 @@ func (p *LayoutManagerPage) persistAndRenderComponent(w http.ResponseWriter, r *
 	}
 }
 
-// --- asset routes -----------------------------------------------------------
-
-func (p *LayoutManagerPage) registerAssetRoutes(mux wrapper.IMux) {
-	// We can't use http.StripPrefix easily because iridium's mux pattern is
-	// scoped to the page slug — register one handler per file. This is a
-	// tiny number of assets (CSS + JS), so explicit is fine and safer than
-	// path concatenation tricks.
-	for _, name := range assetNames() {
-		name := name
-		mux.HandleFunc(routeAssets+name, func(w http.ResponseWriter, r *http.Request) {
-			serveAsset(w, r, name)
-		})
-	}
-}
-
 // --- helpers ----------------------------------------------------------------
-
-// assetURL returns the URL a templ component should reference for one of the
-// embedded assets, accounting for the panel + page slug prefix discoverable
-// from the live request. Without the panel path, we'd get a 404 because
-// iridium routes the request inside a panel-prefixed mux.
-func (p *LayoutManagerPage) assetURL(r *http.Request, name string) string {
-	prefix := panelPathFromRequest(r)
-	asset := prefix + p.SlugStr + routeAssets + name
-	if version := assetVersion(name); version != "" {
-		return asset + "?v=" + version
-	}
-	return asset
-}
 
 // panelPathFromRequest pulls the panel prefix from the current request's
 // context. Iridium sets ctxkeys.PanelPath on every request that goes through

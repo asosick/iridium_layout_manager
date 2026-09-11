@@ -88,6 +88,35 @@ func TestHandleSaveCommitsSessionState(t *testing.T) {
 	if sessionSaves != 1 || committedSaves != 1 || durableSaves != 1 {
 		t.Fatalf("expected session, committed and durable saves once, got %d, %d and %d", sessionSaves, committedSaves, durableSaves)
 	}
+	if got := w.Header().Get(nextLayoutHeader); got != "" {
+		t.Fatalf("populated current layout should not request a fallback, got %q", got)
+	}
+}
+
+func TestHandleSaveSelectsPopulatedFallbackForEmptyCurrentLayout(t *testing.T) {
+	p := NewLayoutManagerPage("Dashboard", "dashboard")
+	state := LayoutState{Layouts: []Layout{
+		{Blocks: []Block{{ID: "page-1"}}},
+		{},
+		{},
+	}}
+	p.sessionLoad = func(_ *http.Request) (LayoutState, error) { return state, nil }
+	p.sessionExists = func(_ *http.Request) (bool, error) { return true, nil }
+	p.sessionSave = func(_ *http.Request, _ LayoutState) error { return nil }
+	p.committedSave = func(_ *http.Request, _ LayoutState) error { return nil }
+
+	form := url.Values{"layout": {"1"}}
+	r := httptest.NewRequest(http.MethodPost, "/lm/save", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	p.handleSave(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", w.Code)
+	}
+	if got := w.Header().Get(nextLayoutHeader); got != "0" {
+		t.Fatalf("next populated layout = %q, want 0", got)
+	}
 }
 
 func TestHandleResetRestoresCommittedState(t *testing.T) {

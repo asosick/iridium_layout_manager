@@ -12,14 +12,13 @@ import (
 	"github.com/asosick/iridium_layout_manager/views"
 )
 
-// renderPage builds the full PageData (heading, dropdown options, blocks
-// with renderers + URLs) and returns the root LayoutManagerComponent.
-// Called from GetComponent on every page render.
-func (p *LayoutManagerPage) renderPage(w http.ResponseWriter, r *http.Request, state LayoutState) templ.Component {
+// buildInitialPageData builds the shared native-header and grid state for the
+// first layout shown on a full page render.
+func (p *LayoutManagerPage) buildInitialPageData(w http.ResponseWriter, r *http.Request, state LayoutState) *views.PageData {
 	// On a fresh page load, focus the first layout that has content so a user
 	// who saved everything on (say) layout 2 doesn't land on an empty page 1.
 	current := state.FirstUsedLayout(p.layoutCount)
-	return views.LayoutManagerComponent(p.buildPageData(w, r, state, current))
+	return p.buildPageData(w, r, state, current)
 }
 
 // renderGrid returns just the grid component (htmx-swap target). Mutation
@@ -65,8 +64,6 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 			Select:  prefix + routeSelect,
 			Save:    prefix + routeSave,
 			Reset:   prefix + routeReset,
-			CSS:     p.assetURL(r, "layout_manager.css"),
-			JS:      p.assetURL(r, "layout_manager.js"),
 		},
 	}
 

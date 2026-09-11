@@ -1,18 +1,8 @@
 // Iridium Layout Manager — client glue.
 //
-// Iridium's Alpine build is CSP-mode (no inline expressions), so the only way
-// to wire reactivity is via a named Alpine.data component registered before
-// Alpine walks the DOM. The plugin renders this script in the body BEFORE the
-// x-data element AND without `defer` so it runs synchronously during HTML
-// parse. That gets us in early enough to attach an `alpine:init` listener —
-// Alpine fires that event right before it scans the DOM, so registering the
-// data inside the listener guarantees it exists by the time x-data is
-// evaluated.
-//
-// The fallback path covers the corner case where this script loads AFTER
-// Alpine has already started (e.g. injected via htmx swap into an
-// already-bootstrapped page): we register the data immediately and re-init
-// the affected subtrees so they pick up the fresh registration.
+// Iridium's Alpine build is CSP-mode, so reactivity is registered through a
+// named Alpine.data component. Iridium loads this plugin asset globally before
+// Alpine starts, which also makes it available to later HTMX page fragments.
 
 (function () {
     const COMPONENT_NAME = 'layout_manager';
@@ -31,7 +21,6 @@
         selectUrl: '',
         lockAfterDone: true,
         zenMode: false,
-        _pageHeader: null,
         // Prevent Save from racing the session cookie written by reorder.
         reorderPending: false,
         // Bound document keydown handler, kept so we can detach on destroy.
@@ -87,7 +76,7 @@
             this._afterSwapHandler = (e) => {
                 if (e.target && this.$el.contains(e.target)) this.setupMasonry();
             };
-            this.$el.addEventListener('htmx:afterSwap', this._afterSwapHandler);
+            this.$el.addEventListener('htmx:after:swap', this._afterSwapHandler);
 
             this._windowResizeHandler = () => this.scheduleMasonry();
             window.addEventListener('resize', this._windowResizeHandler, { passive: true });
@@ -96,7 +85,6 @@
         },
 
         destroy() {
-            this.setZenMode(false);
             if (this._hotkeyHandler) {
                 document.removeEventListener('keydown', this._hotkeyHandler);
                 this._hotkeyHandler = null;
@@ -114,7 +102,7 @@
                 this._pointerDownHandler = null;
             }
             if (this._afterSwapHandler) {
-                this.$el.removeEventListener('htmx:afterSwap', this._afterSwapHandler);
+                this.$el.removeEventListener('htmx:after:swap', this._afterSwapHandler);
                 this._afterSwapHandler = null;
             }
             if (this._windowResizeHandler) {
@@ -153,14 +141,12 @@
             if (!this.selectUrl || !window.htmx) return;
             const grid = this.$root.querySelector('[data-lm-grid]');
             if (!grid) return;
-            try {
-                window.htmx.ajax('GET', this.selectUrl + '?layout=' + i, {
-                    target: grid,
-                    swap: 'outerHTML',
-                });
-            } catch (err) {
+            window.htmx.ajax('GET', this.selectUrl + '?layout=' + i, {
+                target: grid,
+                swap: 'outerHTML',
+            }).catch(err => {
                 console.error('[layoutmgr] selectLayout failed', err);
-            }
+            });
         },
 
         toggleEdit() {
@@ -172,8 +158,18 @@
         },
 
         finishEditing(e) {
-            if (e.detail && e.detail.successful !== false && this.lockAfterDone) {
-                this.editMode = false;
+            // htmx 4 exposes the request context (fetch-based) via e.detail.ctx
+            // instead of the removed e.detail.xhr.
+            const ctx = e.detail && e.detail.ctx;
+            if (!ctx || !this.lockAfterDone) return;
+            const status = ctx.response && ctx.response.status;
+            if (status >= 400) return;
+            this.editMode = false;
+            const headers = ctx.response && ctx.response.headers;
+            const raw = headers && headers.get('X-Iridium-Layout-Manager-Next-Layout');
+            const next = parseInt(raw, 10);
+            if (Number.isInteger(next) && next >= 0 && next < this.layoutCount && next !== this.currentLayout) {
+                this.selectLayout(next);
             }
         },
 
@@ -193,12 +189,7 @@
         },
 
         setZenMode(enabled) {
-            const page = this.$el.closest('.ir-panel-page');
-            const header = this._pageHeader || (page && page.querySelector(':scope > .ir-panel-page-header'));
-            if (!header) return;
-            this._pageHeader = header;
             this.zenMode = enabled;
-            header.hidden = enabled;
         },
 
         startResize(e, handle) {
@@ -420,7 +411,15 @@
                         throw new Error('[layoutmgr] htmx swap API unavailable');
                     }
                     // Let htmx own teardown, initialization, and swap events.
-                    window.htmx.swap(grid, html, { swapStyle: 'outerHTML' });
+                    // htmx 4's htmx.swap takes a request context rather than
+                    // (target, content, swapStyle).
+                    window.htmx.swap({
+                        sourceElement: grid,
+                        target: grid,
+                        swap: 'outerHTML',
+                        text: html,
+                        transition: false,
+                    });
                 })
                 .catch(err => console.error('[layoutmgr] reorder failed', err))
                 .finally(() => {
@@ -436,37 +435,7 @@
         return true;
     };
 
-    const hasComponentState = (el) => Array.isArray(el._x_dataStack)
-        && el._x_dataStack.some(state => typeof state.toggleEdit === 'function');
-
-    const repairComponentTrees = () => {
-        if (!window.Alpine || typeof window.Alpine.initTree !== 'function') return;
-
-        document.querySelectorAll('[x-data="' + COMPONENT_NAME + '"]').forEach(el => {
-            if (hasComponentState(el)) return;
-
-            try {
-                if (el._x_dataStack && typeof window.Alpine.destroyTree === 'function') {
-                    window.Alpine.destroyTree(el);
-                }
-                window.Alpine.initTree(el);
-            } catch (e) {
-                console.error('[layoutmgr] component recovery failed', e);
-            }
-        });
-    };
-
-    // Preferred path: Alpine hasn't started yet. The alpine:init event fires
-    // immediately before Alpine walks the DOM, after this script has hooked
-    // it. Registering inside the listener guarantees the data component is
-    // available when x-data is first evaluated.
-    document.addEventListener('alpine:init', register, { once: true });
-
-    // If Alpine already started, register immediately and repair any tree that
-    // was marked initialised before the component became available. Running a
-    // second check on the next frame also covers an in-progress Alpine scan.
-    if (register()) {
-        queueMicrotask(repairComponentTrees);
-        window.requestAnimationFrame(repairComponentTrees);
+    if (!register()) {
+        document.addEventListener('alpine:init', register, { once: true });
     }
 })();

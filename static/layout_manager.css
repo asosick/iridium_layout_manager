@@ -8,14 +8,13 @@
    (--color-border, --color-background, --color-muted, --color-primary, etc.)
    so they flip with the host theme. */
 
-.lm-page {
+[data-lm-page] {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
 }
 
-/* The toolbar is teleported into Iridium's page-header action area so the
-   selectors and edit controls share the row with the title. */
+/* The toolbar uses Iridium's native page-header action area. */
 .lm-toolbar {
     display: flex;
     align-items: center;

@@ -129,6 +129,12 @@ func TestLayoutState_ContentHelpers(t *testing.T) {
 	if s.FirstUsedLayout(3) != 0 {
 		t.Fatalf("FirstUsedLayout expected 0, got %d", s.FirstUsedLayout(3))
 	}
+	if next, ok := s.NextPopulatedLayout(1, 3); !ok || next != 2 {
+		t.Fatalf("NextPopulatedLayout after page 2 = %d, %t; want page 3", next, ok)
+	}
+	if next, ok := s.NextPopulatedLayout(2, 3); !ok || next != 0 {
+		t.Fatalf("NextPopulatedLayout should wrap to page 1, got %d, %t", next, ok)
+	}
 
 	// EnsureLayouts pads, LayoutAt clamps out-of-range to 0.
 	s.EnsureLayouts(5)
@@ -137,6 +143,13 @@ func TestLayoutState_ContentHelpers(t *testing.T) {
 	}
 	if l := s.LayoutAt(99, 5); l != &s.Layouts[0] {
 		t.Fatalf("LayoutAt out-of-range should clamp to layout 0")
+	}
+}
+
+func TestNextPopulatedLayoutReturnsNoFallbackWhenEveryOtherLayoutIsEmpty(t *testing.T) {
+	s := LayoutState{Layouts: []Layout{{}, {Blocks: []Block{{ID: "only"}}}, {}}}
+	if next, ok := s.NextPopulatedLayout(1, 3); ok {
+		t.Fatalf("unexpected populated fallback %d", next)
 	}
 }
 

@@ -3,18 +3,16 @@ package layoutmgr
 import (
 	"strings"
 	"testing"
+
+	"github.com/iridiumgo/iridium/core/asset"
 )
 
-func TestAssetVersion(t *testing.T) {
-	jsVersion := assetVersion("layout_manager.js")
-	if jsVersion == "" {
-		t.Fatal("expected embedded JavaScript asset version")
+func TestAssetsRegisterWithIridium(t *testing.T) {
+	if got := asset.StyleHref("layout-manager", "layout-manager"); got != "/static/registered/layout-manager/layout-manager.css" {
+		t.Fatalf("unexpected stylesheet URL %q", got)
 	}
-	if jsVersion == assetVersion("layout_manager.css") {
-		t.Fatal("expected different assets to have different versions")
-	}
-	if got := assetVersion("../missing.js"); got != "" {
-		t.Fatalf("expected no version for missing asset, got %q", got)
+	if got := asset.ScriptSrc("layout-manager", "layout-manager"); got != "/static/registered/layout-manager/layout-manager.js" {
+		t.Fatalf("unexpected script URL %q", got)
 	}
 }
 
@@ -34,7 +32,7 @@ func TestReorderUsesHTMXSwapLifecycle(t *testing.T) {
 		t.Fatalf("read embedded JavaScript: %v", err)
 	}
 	source := string(js)
-	if !strings.Contains(source, "window.htmx.swap(grid, html") {
+	if !strings.Contains(source, "window.htmx.swap({") {
 		t.Fatal("reorder should use the htmx swap lifecycle")
 	}
 	if strings.Contains(source, "grid.outerHTML = html") {
@@ -42,17 +40,19 @@ func TestReorderUsesHTMXSwapLifecycle(t *testing.T) {
 	}
 }
 
-func TestZenModeRestoresThePageHeader(t *testing.T) {
+func TestZenModeUsesNativePageState(t *testing.T) {
 	js, err := staticFS.ReadFile("static/layout_manager.js")
 	if err != nil {
 		t.Fatalf("read embedded JavaScript: %v", err)
 	}
 	source := string(js)
-	if !strings.Contains(source, "destroy() {\n            this.setZenMode(false);") {
-		t.Fatal("destroy should restore a page header hidden by Zen mode")
+	if !strings.Contains(source, "setZenMode(enabled) {\n            this.zenMode = enabled;") {
+		t.Fatal("Zen mode should update the native page controller state")
 	}
-	if !strings.Contains(source, "header.hidden = enabled") {
-		t.Fatal("Zen mode should toggle the owning Iridium page header")
+	for _, forbidden := range []string{"header.hidden", "_pageHeader", "closest('.ir-panel-page')"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("Zen mode should not discover or mutate the page header with %q", forbidden)
+		}
 	}
 }
 
@@ -81,16 +81,31 @@ func TestZenModeCapturesEscapeAndUsesAnOpaqueExitControl(t *testing.T) {
 	}
 }
 
-func TestDoneHandlerSupportsTeleportedToolbar(t *testing.T) {
+func TestDoneHandlerUsesNativeToolbar(t *testing.T) {
 	js, err := staticFS.ReadFile("static/layout_manager.js")
 	if err != nil {
 		t.Fatalf("read embedded JavaScript: %v", err)
 	}
 	source := string(js)
 	if !strings.Contains(source, "finishEditing(e) {") {
-		t.Fatal("Done should expose a handler within the teleported Alpine scope")
+		t.Fatal("Done should expose a handler within the native page Alpine scope")
 	}
 	if strings.Contains(source, "this.$el.addEventListener('htmx:afterRequest'") {
-		t.Fatal("Done should not rely on HTMX events bubbling into the pre-teleport root")
+		t.Fatal("Done should use the control's completed request event")
+	}
+	for _, expected := range []string{
+		"get('X-Iridium-Layout-Manager-Next-Layout')",
+		"Number.isInteger(next)",
+		"next !== this.currentLayout",
+		"this.selectLayout(next)",
+	} {
+		if !strings.Contains(source, expected) {
+			t.Fatalf("Done should follow the server-selected populated layout using %q", expected)
+		}
+	}
+	for _, stale := range []string{"selectNextPopulatedLayout", "data-lm-has-content"} {
+		if strings.Contains(source, stale) {
+			t.Fatalf("Done should not infer saved layout state from stale DOM metadata %q", stale)
+		}
 	}
 }

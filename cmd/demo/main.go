@@ -35,7 +35,9 @@ func main() {
 	app := iridium.NewIridiumApp(demoConfig()).RegisterPanels(demoPanel(mux)).Initialize(mux)
 
 	log.Println("layout-manager demo: http://127.0.0.1:8088/admin/dashboard")
-	app.Serve(mux)
+	if err := app.Serve(mux); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func demoConfig() *config.IridiumConfig {
@@ -43,8 +45,8 @@ func demoConfig() *config.IridiumConfig {
 	cfg.AppName = "Iridium Layout Manager Demo"
 	cfg.AppHost = "127.0.0.1"
 	cfg.AppPort = "8088"
-	cfg.AppKey = "ZGVtby1hcHAtc2VjcmV0LWtleS1jaGFuZ2UtbWU="
-	cfg.AppEncryptionKey = "ZGVtby1hcHAtZW5jcnlwdGlvbi1rZXktY2hhbmdlLW1l"
+	cfg.AppKey = "ZGVtby1hcHAtc2VjcmV0LWtleS1jaGFuZ2UtbWUtbm93"
+	cfg.AppEncryptionKey = "ZGVtby1lbmNyeXB0aW9uLWtleS1jaGFuZ2UtbWUtMzI="
 	cfg.AppEnv = "development"
 	return cfg
 }
@@ -54,7 +56,7 @@ func demoPanel(mux *http.ServeMux) *panel.Panel {
 		ID("layout-demo").
 		Path("admin").
 		NavStyle(panel.NavLeft).
-		Pages(dashboardPage()).
+		PanelItems(dashboardPage()).
 		PanelMiddleware()
 }
 
@@ -72,10 +74,10 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 		TitleDescription("The latest activity across your storefront").
 		PerPage([]uint{5}).
 		Columns(
-			components.NewTextColumnResolvable[order, slicedriver.ArraySearchQuery[order], slicedriver.ArraySortQuery[order]]("Number").Sortable(),
-			components.NewTextColumnResolvable[order, slicedriver.ArraySearchQuery[order], slicedriver.ArraySortQuery[order]]("Client").Sortable(),
-			components.NewTextColumnResolvable[order, slicedriver.ArraySearchQuery[order], slicedriver.ArraySortQuery[order]]("Total").Sortable(),
-			components.NewTextColumnResolvable[order, slicedriver.ArraySearchQuery[order], slicedriver.ArraySortQuery[order]]("Status"),
+			components.NewTextColumnResolvable[order]("Number").Sortable(),
+			components.NewTextColumnResolvable[order]("Client").Sortable(),
+			components.NewTextColumnResolvable[order]("Total").Sortable(),
+			components.NewTextColumnResolvable[order]("Status"),
 		)
 
 	salesStats := stats.NewStatsWidgetResolvable("sales-stats").
@@ -85,15 +87,15 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 			stats.NewStatResolvable("customers").Title("Customers").Description("2,840").Icon(icons.Users),
 		)
 
-	revenueChart := chart.NewResolvableChartWidget[*ctxWidget.Widget]("revenue-chart").
-		WidgetName("Revenue overview").
+	revenueChart := chart.NewChartWidgetResolvable[*ctxWidget.Widget]("revenue-chart").
+		Label("Revenue overview").
 		ChartType("area").
 		ChartData(map[string]any{
 			"categories": []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
 			"series":     []int{1480, 1920, 1760, 2480, 2240, 3160, 2840},
 		})
 
-	ordersWidget := tablewidget.NewResolvableTableWidget[order]("recent-orders", orderTable)
+	ordersWidget := tablewidget.NewTableWidgetResolvable[order]("recent-orders", orderTable)
 
 	return layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
 		Heading("Good morning, Alex").

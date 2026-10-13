@@ -289,18 +289,6 @@ func (p *LayoutManagerPage) ContentSizeFn(fn func(ctx *ctxPanel.PanelPage) enum.
 	return p
 }
 
-// HasBreadCrumbs enables breadcrumbs for the page.
-func (p *LayoutManagerPage) HasBreadCrumbs() *LayoutManagerPage {
-	p.CustomPanelPage.Breadcrumbs()
-	return p
-}
-
-// HasBreadCrumbsFn is a callback alias for HasBreadCrumbs.
-func (p *LayoutManagerPage) HasBreadCrumbsFn(fn func(ctx *ctxPanel.PanelPage) bool) *LayoutManagerPage {
-	p.CustomPanelPage.BreadcrumbsFn(fn)
-	return p
-}
-
 // HeaderWidgets sets widgets rendered in the page header (above the grid).
 func (p *LayoutManagerPage) HeaderWidgets(widgets ...widget.IWidgetResolvable) *LayoutManagerPage {
 	p.CustomPanelPage.HeaderWidgets(widgets...)

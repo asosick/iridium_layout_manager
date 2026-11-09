@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/a-h/templ"
+	"github.com/iridiumgo/iridium/config"
+	"github.com/iridiumgo/iridium/core/context/ctxkeys"
 )
 
 func TestBlockRendersSortKey(t *testing.T) {
@@ -43,5 +45,25 @@ func TestBlockRendersMoveAndResizeControls(t *testing.T) {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("expected %q in block controls, got %s", expected, html)
 		}
+	}
+}
+
+// Under Iridium's CSP mode htmx ignores an element without the page's
+// nonce: every control carries it.
+func TestBlockControlsCarryTheCSPNonce(t *testing.T) {
+	previous := config.Config
+	t.Cleanup(func() { config.Config = previous })
+	config.Config = config.NewIridiumConfig()
+	config.Config.CSPMode = true
+	ctx := context.WithValue(context.Background(), ctxkeys.NonceKey, "n0nce")
+	var out bytes.Buffer
+	d := &PageData{AllowReorder: true, AllowResize: true}
+	b := BlockData{ID: "block-id", Cols: 1, Renderer: templ.Raw("content"), RemoveURL: "/remove"}
+	if err := Block(d, b).Render(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	if posts, nonces := strings.Count(html, "hx-post="), strings.Count(html, `hx-nonce="n0nce"`); posts == 0 || posts != nonces {
+		t.Fatalf("%d htmx controls, %d with the nonce", posts, nonces)
 	}
 }

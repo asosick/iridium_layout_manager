@@ -1,6 +1,7 @@
 package views
 
 import (
+    "github.com/iridiumgo/iridium/core/security/csp"
     "fmt"
     "net/http"
     "strconv"
@@ -126,6 +127,7 @@ templ Toolbar(d *PageData) {
                 if len(d.AddOptions) > 0 {
                     <form
                         hx-post={ d.URLs.Add }
+                        { csp.HTMXNonceAttrs(ctx)... }
                         hx-target="[data-lm-grid]"
                         hx-swap="outerHTML"
                         class="lm-controls"
@@ -146,6 +148,7 @@ templ Toolbar(d *PageData) {
                 }
                 <form
                     hx-post={ d.URLs.Reset }
+                    { csp.HTMXNonceAttrs(ctx)... }
                     hx-target="[data-lm-grid]"
                     hx-swap="outerHTML"
                 >
@@ -157,6 +160,7 @@ templ Toolbar(d *PageData) {
                 </form>
                 <form
                     hx-post={ d.URLs.Save }
+                    { csp.HTMXNonceAttrs(ctx)... }
                     hx-swap="none"
                     @htmx:after:request="finishEditing($event)"
                 >

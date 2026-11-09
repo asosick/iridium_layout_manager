@@ -69,7 +69,7 @@ func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := r.FormValue("type")
-	spec := p.blockByKey(key)
+	spec := p.blockByKey(r, key)
 	if spec == nil {
 		http.Error(w, "unknown block type", http.StatusBadRequest)
 		return

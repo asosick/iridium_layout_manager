@@ -74,6 +74,28 @@ unrelated shorter widgets to leave an empty row beneath them.
 
 You can mix them freely in a single `Blocks(...)` call.
 
+### Blocks that come and go
+
+When the blocks on offer change while the app runs (one per camera, channel
+or database record), give the page a `BlockSource` as well. It is asked on
+every request, and its blocks are offered after the static ones:
+
+```go
+layoutmgr.NewLayoutManagerPage("Wall", "wall").
+    BlockSource(func(r *http.Request) []layoutmgr.BlockSpec {
+        var out []layoutmgr.BlockSpec
+        for _, cam := range cameras.All() {
+            out = append(out, layoutmgr.DynamicBlock("cam:"+cam.ID, cam.Name, cameraTile(cam)))
+        }
+        return out
+    })
+```
+
+Source blocks register no routes, so keep a `WidgetBlock` whose widget has
+routes in `Blocks`. A placed block whose key the source stops returning
+renders as a missing block. Each placed instance's render request carries its
+block ID (`ctxkeys.FEIDOverride`), so a block can keep settings per instance.
+
 ## Configuration
 
 ```go

@@ -67,9 +67,15 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 		},
 	}
 
-	// Dropdown options come straight from the registered specs.
-	d.AddOptions = make([]views.BlockOption, 0, len(p.blocks))
-	for _, b := range p.blocks {
+	// Dropdown options come straight from the specs on offer; the source is
+	// asked once per build.
+	specs := p.specs(r)
+	byKey := make(map[string]BlockSpec, len(specs))
+	d.AddOptions = make([]views.BlockOption, 0, len(specs))
+	for _, b := range specs {
+		if _, dup := byKey[b.Key()]; !dup {
+			byKey[b.Key()] = b
+		}
 		d.AddOptions = append(d.AddOptions, views.BlockOption{
 			Key:   b.Key(),
 			Label: b.Label(),
@@ -86,7 +92,7 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 	curBlocks := state.LayoutAt(currentLayout, p.layoutCount).Blocks
 	d.Blocks = make([]views.BlockData, 0, len(curBlocks))
 	for blockIndex, b := range curBlocks {
-		spec := p.blockByKey(b.Type)
+		spec := byKey[b.Type]
 		var comp templ.Component
 		if spec == nil {
 			comp = views.MissingBlock(b.Type)

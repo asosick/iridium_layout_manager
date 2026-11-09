@@ -31,6 +31,7 @@ type LayoutManagerPage struct {
 	*panel.CustomPanelPage
 
 	blocks          []BlockSpec
+	blockSource     func(r *http.Request) []BlockSpec
 	gridCols        int
 	layoutCount     int
 	showLockBtn     bool
@@ -91,6 +92,25 @@ func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 func (p *LayoutManagerPage) Blocks(blocks ...BlockSpec) *LayoutManagerPage {
 	p.blocks = blocks
 	return p
+}
+
+// BlockSource adds BlockSpecs the page asks for on every request, after
+// those given to Blocks: for blocks that come and go while the app runs, such
+// as one per record in a database. They are offered in the "Add" dropdown,
+// added, rendered and removed like any other, but register no routes, so a
+// WidgetBlock whose widget has routes belongs in Blocks. A placed block whose
+// spec the source stops returning renders as a missing block.
+func (p *LayoutManagerPage) BlockSource(fn func(r *http.Request) []BlockSpec) *LayoutManagerPage {
+	p.blockSource = fn
+	return p
+}
+
+// specs are the blocks on offer for r: Blocks, then BlockSource's.
+func (p *LayoutManagerPage) specs(r *http.Request) []BlockSpec {
+	if p.blockSource == nil {
+		return p.blocks
+	}
+	return append(append([]BlockSpec{}, p.blocks...), p.blockSource(r)...)
 }
 
 // GridColumns sets the max columns in the underlying grid (default 2). Block
@@ -482,10 +502,11 @@ func (p *LayoutManagerPage) normalize(state LayoutState) LayoutState {
 	return state
 }
 
-// blockByKey resolves a stored block Type to its registered BlockSpec.
-// Returns nil if the spec was removed since the layout was saved.
-func (p *LayoutManagerPage) blockByKey(key string) BlockSpec {
-	for _, b := range p.blocks {
+// blockByKey resolves a stored block Type to its BlockSpec, among Blocks and
+// BlockSource's for r. Returns nil if the spec was removed since the layout
+// was saved.
+func (p *LayoutManagerPage) blockByKey(r *http.Request, key string) BlockSpec {
+	for _, b := range p.specs(r) {
 		if b.Key() == key {
 			return b
 		}

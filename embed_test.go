@@ -8,12 +8,18 @@ import (
 )
 
 func TestAssetsRegisterWithIridium(t *testing.T) {
-	if got := asset.StyleHref("layout-manager", "layout-manager"); got != "/static/registered/layout-manager/layout-manager.css" {
+	// Registered assets carry a ?v=<content hash> query since Iridium alpha.21.
+	if got := asset.StyleHref("layout-manager", "layout-manager"); !isVersionedURL(got, "/static/registered/layout-manager/layout-manager.css") {
 		t.Fatalf("unexpected stylesheet URL %q", got)
 	}
-	if got := asset.ScriptSrc("layout-manager", "layout-manager"); got != "/static/registered/layout-manager/layout-manager.js" {
+	if got := asset.ScriptSrc("layout-manager", "layout-manager"); !isVersionedURL(got, "/static/registered/layout-manager/layout-manager.js") {
 		t.Fatalf("unexpected script URL %q", got)
 	}
+}
+
+func isVersionedURL(got, path string) bool {
+	p, query, _ := strings.Cut(got, "?")
+	return p == path && strings.HasPrefix(query, "v=") && len(query) > len("v=")
 }
 
 func TestResizeGuideDoesNotExposeMasonryRows(t *testing.T) {

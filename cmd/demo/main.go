@@ -4,6 +4,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	icons "github.com/iridiumgo/iridium-icons/icon/icons"
 	"github.com/iridiumgo/iridium/config"
@@ -16,6 +17,7 @@ import (
 	"github.com/iridiumgo/iridium/core/widget/chart"
 	"github.com/iridiumgo/iridium/core/widget/stats"
 	tablewidget "github.com/iridiumgo/iridium/core/widget/table"
+	"github.com/iridiumgo/iridium/network/middleware"
 
 	layoutmgr "github.com/asosick/iridium_layout_manager"
 )
@@ -34,7 +36,7 @@ func main() {
 	mux := http.NewServeMux()
 	app := iridium.NewIridiumApp(demoConfig()).RegisterPanels(demoPanel(mux)).Initialize(mux)
 
-	log.Println("layout-manager demo: http://127.0.0.1:8088/admin/dashboard")
+	log.Printf("layout-manager demo: http://127.0.0.1:%s/admin/dashboard", app.Config.AppPort)
 	if err := app.Serve(mux); err != nil {
 		log.Fatal(err)
 	}
@@ -45,19 +47,37 @@ func demoConfig() *config.IridiumConfig {
 	cfg.AppName = "Iridium Layout Manager Demo"
 	cfg.AppHost = "127.0.0.1"
 	cfg.AppPort = "8088"
+	if port := os.Getenv("DEMO_PORT"); port != "" {
+		cfg.AppPort = port
+	}
 	cfg.AppKey = "ZGVtby1hcHAtc2VjcmV0LWtleS1jaGFuZ2UtbWUtbm93"
 	cfg.AppEncryptionKey = "ZGVtby1lbmNyeXB0aW9uLWtleS1jaGFuZ2UtbWUtMzI="
 	cfg.AppEnv = "development"
+	// Run the way production panels do: Alpine's CSP build under a strict
+	// Content-Security-Policy (sent by SecurityHeadersMiddleware below).
+	cfg.CSPMode = true
 	return cfg
 }
 
+// demoPanel mounts the same middleware as a production panel (and Iridium's
+// own E2E server). Spa wraps a full-page request in the panel shell, which
+// is what loads Alpine, htmx and the plugin's script and stylesheet; without
+// it /admin/dashboard answers a bare fragment and nothing is interactive.
 func demoPanel(mux *http.ServeMux) *panel.Panel {
 	return panel.NewPanel(mux).
 		ID("layout-demo").
 		Path("admin").
 		NavStyle(panel.NavLeft).
 		PanelItems(dashboardPage()).
-		PanelMiddleware()
+		Middleware(
+			middleware.SecurityHeadersMiddleware,
+			middleware.CSRFMiddleware,
+		).
+		PanelMiddleware(
+			middleware.Compression,
+			middleware.Spa,
+			middleware.ErrorPages,
+		)
 }
 
 func dashboardPage() *layoutmgr.LayoutManagerPage {

@@ -1,0 +1,53 @@
+/* Fixture blocks for the layout manager's E2E specs. Heights are fixed so
+   geometry assertions are deterministic. */
+.e2e-fixture {
+    box-sizing: border-box;
+    padding: 8px;
+    overflow: hidden;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.e2e-short { height: 80px; }
+.e2e-tall { height: 400px; }
+.e2e-slow { height: 120px; }
+.e2e-controls { height: 180px; }
+
+/* grow: late-loading content. It starts at 80px and becomes 400px a moment
+   after it is inserted, as an image or a chart that renders late would. */
+.e2e-grow {
+    height: 80px;
+    animation: e2e-grow 1ms linear 400ms forwards;
+}
+
+@keyframes e2e-grow {
+    to { height: 400px; }
+}
+
+.e2e-input {
+    width: 100%;
+}
+
+.e2e-draggable {
+    display: inline-block;
+    padding: 2px 6px;
+    border: 1px dashed currentColor;
+    cursor: grab;
+    width: max-content;
+}
+
+.e2e-sortlist {
+    display: flex;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.e2e-sortlist li {
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    cursor: grab;
+}

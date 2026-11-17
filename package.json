@@ -1,0 +1,14 @@
+{
+  "name": "iridium-layout-manager-e2e",
+  "private": true,
+  "description": "Browser end-to-end specs for the Iridium layout manager plugin.",
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report test/e2e/report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "@types/node": "^22.10.0"
+  }
+}

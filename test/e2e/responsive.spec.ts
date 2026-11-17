@@ -13,7 +13,6 @@ test.describe('responsive', () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await lm.goto();
     const width = (await lm.block((await lm.order())[0]).boundingBox())!.width;
-    test.fail(true, `S13: the grid keeps 3 columns at 375px; each block is ${Math.round(width)}px wide`);
     expect(await lm.columnCount(), 'phone').toBe(1);
   });
 
@@ -21,8 +20,7 @@ test.describe('responsive', () => {
     // The device's browser type is the project's (Chromium) already, and
     // cannot change inside a file.
     const { defaultBrowserType: _, ...phone } = devices['Pixel 7'];
-    // A drop swaps the grid in and trips S18's console errors (reorder-drag).
-    test.use({ ...phone, allowedPageProblems: [/\[hx-csp\] blocked/] });
+    test.use(phone);
 
     test('a block can be reordered by dragging its handle with a finger', async ({ page }) => {
       const lm = new LayoutPage(page, 'narrow');

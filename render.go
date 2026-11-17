@@ -12,31 +12,34 @@ import (
 	"github.com/asosick/iridium_layout_manager/views"
 )
 
-// buildInitialPageData builds the shared native-header and grid state for the
-// first layout shown on a full page render.
-func (p *LayoutManagerPage) buildInitialPageData(w http.ResponseWriter, r *http.Request, state LayoutState) *views.PageData {
-	// On a fresh page load, focus the first layout that has content so a user
-	// who saved everything on (say) layout 2 doesn't land on an empty page 1.
+// buildInitialPageData builds the page for a full page render: the layout
+// named by ?layout=N (so a reload stays on the page the user was on), else
+// the first layout with content.
+func (p *LayoutManagerPage) buildInitialPageData(w http.ResponseWriter, r *http.Request, state LayoutState, unsaved bool) *views.PageData {
 	current := state.FirstUsedLayout(p.layoutCount)
-	return p.buildPageData(w, r, state, current)
+	if raw := r.URL.Query().Get("layout"); raw != "" {
+		if i, err := strconv.Atoi(raw); err == nil && i >= 0 && i < p.layoutCount {
+			current = i
+		}
+	}
+	d := p.pageData(w, r, state, current)
+	d.Unsaved = unsaved
+	d.Blocks = p.renderBlocks(w, r, d, state.LayoutAt(current, p.layoutCount).Blocks)
+	return d
 }
 
-// renderGrid returns just the grid component (htmx-swap target). Mutation
-// handlers (add/remove/resize/reorder/save) return this instead of the full
-// page.
-func (p *LayoutManagerPage) renderGrid(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int) templ.Component {
-	return views.GridResponse(p.buildPageData(w, r, state, currentLayout))
+// renderGrid returns the grid of one layout (the swap target for page
+// switches and Reset).
+func (p *LayoutManagerPage) renderGrid(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int, unsaved bool) templ.Component {
+	d := p.pageData(w, r, state, currentLayout)
+	d.Unsaved = unsaved
+	d.Blocks = p.renderBlocks(w, r, d, state.LayoutAt(currentLayout, p.layoutCount).Blocks)
+	return views.Grid(d)
 }
 
-func (p *LayoutManagerPage) renderGridOnly(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int) templ.Component {
-	return views.Grid(p.buildPageData(w, r, state, currentLayout))
-}
-
-// buildPageData populates the view layer's PageData from the plugin's
-// configuration and the current request's state. Per-block components are
-// resolved here so any heavy lifting (DB queries inside a widget) happens
-// once during this build, not at render time.
-func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int) *views.PageData {
+// pageData populates the view layer's PageData from the plugin's
+// configuration and the state shown, without rendering any block.
+func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int) *views.PageData {
 	prefix := panelPathFromRequest(r) + p.SlugStr
 
 	if currentLayout < 0 || currentLayout >= p.layoutCount {
@@ -70,62 +73,62 @@ func (p *LayoutManagerPage) buildPageData(w http.ResponseWriter, r *http.Request
 	// Dropdown options come straight from the specs on offer; the source is
 	// asked once per build.
 	specs := p.specs(r)
-	byKey := make(map[string]BlockSpec, len(specs))
 	d.AddOptions = make([]views.BlockOption, 0, len(specs))
 	for _, b := range specs {
-		if _, dup := byKey[b.Key()]; !dup {
-			byKey[b.Key()] = b
-		}
-		d.AddOptions = append(d.AddOptions, views.BlockOption{
-			Key:   b.Key(),
-			Label: b.Label(),
-		})
+		d.AddOptions = append(d.AddOptions, views.BlockOption{Key: b.Key(), Label: b.Label()})
 	}
-
-	// Per-block render data for the currently-selected layout only. A block
-	// whose spec was removed since save renders as a "broken" placeholder
-	// rather than crashing the whole page.
-	//
-	// Every per-block URL carries &layout=N so a mutation lands on the layout
-	// the grid is actually showing (the grid is re-rendered per layout switch).
-	layoutQuery := "&layout=" + strconv.Itoa(currentLayout)
-	curBlocks := state.LayoutAt(currentLayout, p.layoutCount).Blocks
-	d.Blocks = make([]views.BlockData, 0, len(curBlocks))
-	for blockIndex, b := range curBlocks {
-		spec := byKey[b.Type]
-		var comp templ.Component
-		if spec == nil {
-			comp = views.MissingBlock(b.Type)
-		} else {
-			// Give every block instance a unique front-end id derived from its
-			// stable block ID. A block's widget definition is shared across all
-			// instances of that block type, so without this each duplicate would
-			// render with the SAME table FeId — producing duplicate DOM ids and a
-			// shared URL filter namespace, which is why changing a filter on one
-			// duplicated table leaked into the others. The table resolver reads
-			// this override (and the client echoes it back on data refreshes), so
-			// each instance stays independently scoped without cloning the
-			// definition. Harmless for non-table blocks.
-			blockReq := r.WithContext(context.WithValue(r.Context(), ctxkeys.FEIDOverride, b.ID))
-			comp = spec.Render(w, blockReq)
-		}
-		idQuery := "?id=" + url.QueryEscape(b.ID)
-		d.Blocks = append(d.Blocks, views.BlockData{
-			ID:              b.ID,
-			Cols:            clampCols(b.Cols, p.gridCols),
-			Renderer:        comp,
-			RemoveURL:       d.URLs.Remove + idQuery + layoutQuery,
-			ResizeIncURL:    d.URLs.Resize + idQuery + "&delta=1" + layoutQuery,
-			ResizeDecURL:    d.URLs.Resize + idQuery + "&delta=-1" + layoutQuery,
-			ResizeToggleURL: d.URLs.Resize + idQuery + "&cols=0" + layoutQuery,
-			ResizeURL:       d.URLs.Resize + idQuery + layoutQuery,
-			MoveLeftURL:     d.URLs.Move + idQuery + "&delta=-1" + layoutQuery,
-			MoveRightURL:    d.URLs.Move + idQuery + "&delta=1" + layoutQuery,
-			CanMoveLeft:     blockIndex > 0,
-			CanMoveRight:    blockIndex < len(curBlocks)-1,
-		})
-	}
-	// The reorder POST also needs to know which layout it's reordering.
 	d.ReorderURL = d.URLs.Reorder + "?layout=" + strconv.Itoa(currentLayout)
 	return d
+}
+
+// renderBlocks resolves the render data of the given blocks, which make up
+// the whole of the shown layout.
+func (p *LayoutManagerPage) renderBlocks(w http.ResponseWriter, r *http.Request, d *views.PageData, blocks []Block) []views.BlockData {
+	// The source is asked once per render, not once per block.
+	byKey := make(map[string]BlockSpec)
+	for _, spec := range p.specs(r) {
+		if _, dup := byKey[spec.Key()]; !dup {
+			byKey[spec.Key()] = spec
+		}
+	}
+	out := make([]views.BlockData, 0, len(blocks))
+	for i, b := range blocks {
+		out = append(out, p.blockData(w, r, d, byKey[b.Type], b, i, len(blocks)))
+	}
+	return out
+}
+
+// blockData resolves one block: the block at index of count in the shown
+// layout. A block whose spec was removed since it was placed renders as a
+// "missing" placeholder rather than failing the page.
+//
+// Every per-block URL carries &layout=N so an edit lands on the layout the
+// grid is showing.
+func (p *LayoutManagerPage) blockData(w http.ResponseWriter, r *http.Request, d *views.PageData, spec BlockSpec, b Block, index, count int) views.BlockData {
+	var comp templ.Component
+	if spec == nil {
+		comp = views.MissingBlock(b.Type)
+	} else {
+		// Give every block instance a unique front-end id derived from its
+		// stable block ID. A block's widget definition is shared across all
+		// instances of that block type, so without this each duplicate would
+		// render with the SAME table FeId — producing duplicate DOM ids and a
+		// shared URL filter namespace. The table resolver reads this override
+		// (and the client echoes it back on data refreshes), so each instance
+		// stays independently scoped without cloning the definition.
+		blockReq := r.WithContext(context.WithValue(r.Context(), ctxkeys.FEIDOverride, b.ID))
+		comp = spec.Render(w, blockReq)
+	}
+	layoutQuery := "&layout=" + strconv.Itoa(d.CurrentLayout)
+	idQuery := "?id=" + url.QueryEscape(b.ID)
+	return views.BlockData{
+		ID:           b.ID,
+		Cols:         clampCols(b.Cols, p.gridCols),
+		Renderer:     comp,
+		RemoveURL:    d.URLs.Remove + idQuery + layoutQuery,
+		ResizeURL:    d.URLs.Resize + idQuery + layoutQuery,
+		MoveURL:      d.URLs.Move + idQuery + layoutQuery,
+		CanMoveLeft:  index > 0,
+		CanMoveRight: index < count-1,
+	}
 }

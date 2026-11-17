@@ -19,7 +19,7 @@ test.describe('pages', () => {
     await expect(page.locator('#lm-selectors'), 'one populated page: no strip').toBeHidden();
   });
 
-  test('a page number and Ctrl/Cmd+N show that page; Add lands on the page shown', async ({ page }) => {
+  test('a page number and the 1..9 keys show that page; Add lands on the page shown', async ({ page }) => {
     const lm = new LayoutPage(page);
     const planted = layoutOf(['short'], ['tall'], []);
     await lm.plant(planted);
@@ -32,7 +32,8 @@ test.describe('pages', () => {
     await expect(lm.pageButton(0)).toHaveClass(/ir-btn-outline/);
 
     await lm.edit();
-    await Promise.all([page.waitForResponse(r => r.url().includes('/lm/select')), page.keyboard.press('Control+3')]);
+    await page.locator('h1').first().click();
+    await Promise.all([page.waitForResponse(r => r.url().includes('/lm/select')), page.keyboard.press('3')]);
     await lm.waitForIdle();
     expect(await lm.currentLayout()).toBe(2);
     const added = await lm.addBlock('short');
@@ -65,25 +66,23 @@ test.describe('pages', () => {
     expect(await lm.order()).toEqual(['tall-2']);
 
     await lm.reload();
-    test.fail(true, 'S7: the first render always shows the first populated layout');
     expect(await lm.currentLayout()).toBe(1);
     expect(await lm.order()).toEqual(['tall-2']);
   });
 
-  test('S11: Ctrl/Cmd+N pressed while typing in a field does not switch pages', async ({ page }) => {
+  test('S11: a page key typed into a field stays in the field', async ({ page }) => {
     const lm = new LayoutPage(page);
     await lm.plant(layoutOf(['controls'], ['tall'], []));
     await lm.goto();
     const input = page.locator('[data-e2e-input]');
     await input.click();
-    await page.keyboard.type('note');
-    await page.keyboard.press('Control+2');
+    await page.keyboard.type('note 2');
     await lm.settle();
 
-    test.fail(true, 'S11: the hotkey listener on document ignores where the key was pressed');
     expect(lm.requests.filter(r => r.includes('/lm/select'))).toEqual([]);
     expect(await lm.currentLayout()).toBe(0);
     await expect(input).toBeFocused();
+    await expect(input).toHaveValue('note 2');
   });
 
   test('S11: Ctrl/Cmd+1..9 is left to the browser, which uses it to switch tabs', async ({ page }) => {
@@ -96,7 +95,6 @@ test.describe('pages', () => {
     await page.keyboard.press('Control+2');
     await lm.settle();
 
-    test.fail(true, 'S11: the page calls preventDefault on Ctrl/Cmd+N for every N up to its page count');
     expect(await page.evaluate(() => (window as any).__prevented)).toBe(false);
   });
 });

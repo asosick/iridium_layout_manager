@@ -28,6 +28,7 @@ test.describe('resize', () => {
     expect(await lm.cols(a), 'never below one column').toBe(1);
     await lm.grow(a);
 
+    await lm.done();
     await lm.reload();
     expect(await lm.cols(a)).toBe(2);
   });
@@ -91,7 +92,6 @@ test.describe('resize', () => {
     const byButton = await lm.cols(b);
     expect(byButton).toBe(3);
 
-    test.fail(true, 'S12: the drag caps the span at GridColumns - start column (2 here); + allows GridColumns');
     expect(byDrag, 'widest span the drag allows').toBe(byButton);
   });
 

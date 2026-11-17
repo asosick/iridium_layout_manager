@@ -7,18 +7,22 @@ async function hooks(page: import('@playwright/test').Page) {
 
 /** What survives a reload, what Done commits, and what other browsers see. */
 test.describe('persistence', () => {
-  test('a draft survives a reload; Done commits it', async ({ page }) => {
+  test('a draft survives a reload and returns in edit mode; Done commits it', async ({ page }) => {
     const lm = new LayoutPage(page);
     await lm.goto();
     await lm.edit();
     const a = await lm.addBlock('short');
     await lm.reload();
-    expect(await lm.order()).toEqual([a]);
+    expect(await lm.order(), 'view mode shows what is committed').toEqual([]);
     expect(await lm.committedOrder(), 'not committed yet').toEqual([]);
 
-    await lm.edit();
+    await Promise.all([page.waitForResponse(r => r.url().includes('/lm/select')), lm.editButton().click()]);
+    await lm.waitForIdle();
+    expect(await lm.order(), 'edit mode brings the draft back').toEqual([a]);
     await lm.done();
     expect(await lm.committedOrder()).toEqual([a]);
+    await lm.reload();
+    expect(await lm.order()).toEqual([a]);
   });
 
   test('S8: after leaving without Done, view mode shows the committed layout, not the draft', async ({ page }) => {
@@ -32,7 +36,6 @@ test.describe('persistence', () => {
     await lm.reload();
     expect(await lm.isEditing()).toBe(false);
 
-    test.fail(true, 'S8: view mode renders the session draft, so Done/Reset are not what a viewer sees');
     expect(await lm.order()).toEqual([a]);
   });
 
@@ -74,7 +77,6 @@ test.describe('persistence', () => {
     expect((await hooks(page)).db.layouts[0].blocks.map((block: any) => block.id)).toEqual([x, y]);
     await context.close();
 
-    test.fail(true, 'S9: the LoadHook only seeds a session with no draft; B never reads the store again');
     await b.reload();
     expect(await b.order(), 'B after a reload').toEqual([x, y]);
     await b.edit();
@@ -82,12 +84,13 @@ test.describe('persistence', () => {
     expect(await b.order(), 'B after Reset').toEqual([x, y]);
   });
 
-  // S17: the layout cookies are Secure (gorilla's defaults) whatever the
-  // request's scheme, and a browser keeps a Secure cookie only from an origin
-  // it trusts. Chromium trusts loopback; WebKit does not even trust that.
+  // S17: layouts used to live in Secure cookies, which a browser keeps only
+  // from an origin it trusts over HTTP: Chromium trusts loopback, WebKit not
+  // even that. Layouts now live on the server.
   for (const [engine, host] of [['chromium', 'dashboard.lan'], ['webkit', '127.0.0.1']] as const) {
-    test(`S17: over plain HTTP at ${host} (${engine}), an edit survives a reload`, async ({ baseURL, browserName }) => {
+    test(`S17: over plain HTTP at ${host} (${engine}), a saved edit survives a reload`, async ({ baseURL, browserName }) => {
       test.skip(browserName !== 'chromium', 'launches its own browser once, from the Chromium project');
+      test.slow(); // a browser of its own to launch
       const launcher = engine === 'chromium' ? chromium : webkit;
       // For Chromium, a LAN host name resolved to this server: a plain-HTTP
       // origin that, unlike 127.0.0.1, it does not treat as secure.
@@ -102,10 +105,10 @@ test.describe('persistence', () => {
         await Promise.all([page.waitForResponse(r => r.url().includes('/lm/add')), lm.addButton().click()]);
         await lm.waitForIdle();
         expect(await lm.order(), 'the add rendered').toHaveLength(1);
+        await lm.done();
 
         await page.reload();
         await lm.ready();
-        test.fail(true, 'S17: the browser refuses the Secure layout cookies over plain HTTP, so nothing persists');
         expect(await lm.order()).toHaveLength(1);
       } finally {
         await browser.close();

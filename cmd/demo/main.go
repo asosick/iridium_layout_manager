@@ -112,7 +112,7 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 		ChartType("area").
 		ChartData(map[string]any{
 			"categories": []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
-			"series":     []int{1480, 1920, 1760, 2480, 2240, 3160, 2840},
+			"series":     []map[string]any{{"name": "Revenue", "data": []int{1480, 1920, 1760, 2480, 2240, 3160, 2840}}},
 		})
 
 	ordersWidget := tablewidget.NewTableWidgetResolvable[order]("recent-orders", orderTable)

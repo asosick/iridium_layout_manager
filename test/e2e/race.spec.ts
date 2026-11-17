@@ -6,7 +6,6 @@ import { LayoutPage, layoutOf } from './support/layout';
  * edit take the server 600ms or more, as a page of real widgets would, so
  * these are ordinary clicks at an ordinary pace, not contrived timing.
  */
-test.use({ allowedPageProblems: [/\[hx-csp\] blocked/] });
 
 test.describe('races', () => {
   test('S3: two quick clicks on + grow the block by two', async ({ page }) => {
@@ -22,7 +21,6 @@ test.describe('races', () => {
     await page.waitForTimeout(1500);
     await lm.waitForIdle();
 
-    test.fail(true, 'S3: the second click is lost: both requests start from the same cookie, or htmx drops it');
     expect(await lm.cols(a), 'on screen').toBe(3);
     expect((await lm.storedState()).draft!.layouts![0].blocks![0].cols, 'stored').toBe(3);
   });
@@ -41,12 +39,11 @@ test.describe('races', () => {
     await page.waitForTimeout(1500);
     await lm.waitForIdle();
 
-    test.fail(true, 'S3: the remove started from the cookie before the reorder; whichever lands last undoes the other');
     expect(await lm.order(), 'on screen').toEqual([c, a, s1, s2]);
     expect(await lm.serverOrder(), 'stored').toEqual([c, a, s1, s2]);
   });
 
-  test('Done and Reset wait for a pending reorder, and Done commits it', async ({ page }) => {
+  test('Done pressed while a reorder is in flight waits for it, then commits it', async ({ page }) => {
     const lm = new LayoutPage(page, 'narrow');
     await lm.plant(layoutOf(['short', 'short', 'short']));
     await lm.goto();
@@ -57,13 +54,15 @@ test.describe('races', () => {
     await page.route('**/lm/reorder**', async route => { await held; await route.continue(); });
 
     await lm.drag(a, c);
-    await expect(lm.doneButton()).toBeDisabled();
-    await expect(lm.resetButton()).toBeDisabled();
+    await lm.doneButton().click();
+    await page.waitForTimeout(400);
+    expect(lm.requests.filter(r => r.includes('/lm/save')), 'Done waits for the reorder').toEqual([]);
+
     answer();
-    await expect(lm.doneButton()).toBeEnabled();
+    await page.waitForResponse(r => r.url().includes('/lm/save'));
     await lm.waitForIdle();
-    await lm.done();
     expect(await lm.committedOrder()).toEqual([b, c, a]);
+    expect(await lm.isEditing()).toBe(false);
   });
 
   test('S3: Done pressed while a resize is in flight commits the resize', async ({ page }) => {
@@ -80,7 +79,6 @@ test.describe('races', () => {
     await lm.waitForIdle();
     expect(await lm.cols(a), 'the resize landed').toBe(2);
 
-    test.fail(true, 'S3: Done only waits for a reorder; it commits the cookie it was sent with, from before the resize');
     const { draft, committed } = await lm.storedState();
     expect(committed!.layouts![0].blocks![0].cols, 'committed').toBe(2);
     expect(draft!.layouts![0].blocks![0].cols, 'draft').toBe(2);

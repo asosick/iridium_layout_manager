@@ -5,13 +5,7 @@ import { LayoutPage, layoutOf } from './support/layout';
  * Drag to reorder, with real pointer input through the browser's native drag
  * and drop (SortableJS). After every drop the DOM order, the order a user
  * reads on screen, the stored order and a reload must agree.
- *
- * After a drag the script swaps the reorder response in itself, and htmx's
- * CSP extension then strips the htmx attributes of every control in the new
- * grid (S18, asserted below). Each strip logs a console error; the other
- * tests here allow it so they keep checking what they are about.
  */
-test.use({ allowedPageProblems: [/\[hx-csp\] blocked/] });
 
 async function expectAgreed(lm: LayoutPage, expected: string[]) {
   expect(await lm.order(), 'DOM order').toEqual(expected);
@@ -34,6 +28,7 @@ test.describe('drag to reorder', () => {
     await lm.dragOnto(b, c);
     await expectAgreed(lm, [a, c, b, d]);
 
+    await lm.done();
     await lm.reload();
     expect(await lm.order()).toEqual([a, c, b, d]);
   });
@@ -62,15 +57,19 @@ test.describe('drag to reorder', () => {
     const [tall, wide, a, b] = await lm.order();
     await expectAgreed(lm, [tall, wide, a, b]);
 
-    // Drop b on the wide block, as a person moving it up a row would.
-    const released = await lm.dragOnto(b, wide);
+    // Drop b on the wide block's first column, as a person moving it up a
+    // row would.
+    const box = (await lm.block(wide).boundingBox())!;
+    const reorder = page.waitForResponse(r => r.url().includes('/lm/reorder'));
+    const released = await lm.drag(b, { x: box.x + box.width / 4, y: box.y + box.height / 2 });
+    await reorder;
+    await lm.waitForIdle();
     expect(await lm.order()).toEqual([tall, b, wide, a]);
     expect(await lm.serverOrder()).toEqual([tall, b, wide, a]);
 
-    test.fail(true, 'S1: dense packing back-fills the hole the move leaves: `a` shows before `wide`');
     expect(await lm.visualOrder(), 'order on screen').toEqual(await lm.order());
-    const box = (await lm.block(b).boundingBox())!;
-    expect(released.x >= box.x && released.x <= box.x + box.width && released.y >= box.y && released.y <= box.y + box.height,
+    const dropped = (await lm.block(b).boundingBox())!;
+    expect(released.x >= dropped.x && released.x <= dropped.x + dropped.width && released.y >= dropped.y && released.y <= dropped.y + dropped.height,
       'the dropped block sits where it was released').toBe(true);
   });
 
@@ -90,19 +89,16 @@ test.describe('drag to reorder', () => {
 
     await lm.drag(a, d);
     expect(await lm.order()).toEqual([b, c, d, a]);
-    await lm.drag(b, a);
-    expect(await lm.order(), 'the second drop shows').toEqual([c, d, a, b]);
+    await lm.drag(d, b);
+    expect(await lm.order(), 'the second drop shows').toEqual([d, b, c, a]);
     answer();
     await lm.settle();
 
-    test.fail(true, 'S2: the second drag is dropped while a reorder is pending, then the first response swaps the grid back');
-    await expectAgreed(lm, [c, d, a, b]);
+    await expectAgreed(lm, [d, b, c, a]);
+    expect(lm.requests.filter(r => r.includes('/lm/reorder')), 'both drops were sent, in turn').toHaveLength(2);
   });
 
   test.describe('while another edit is in flight', () => {
-    // One pattern: test.use reads a two-element array as [value, options].
-    test.use({ allowedPageProblems: [/\[hx-csp\] blocked|removeEventListener/] });
-
     test('S3/S5: a drag made while a resize is in flight is kept, and so is the resize', async ({ page }) => {
       const lm = new LayoutPage(page);
       // Two slow blocks: every edit takes the server 600ms or more, as a
@@ -120,7 +116,6 @@ test.describe('drag to reorder', () => {
       await lm.waitForIdle();
       expect(await lm.cols(x), 'the resize landed').toBe(2);
 
-      test.fail(true, 'S3/S5: the resize response replaces the grid mid-drag; the drag is lost and Sortable throws');
       expect(pageErrors, 'uncaught page errors').toEqual([]);
       expect(lm.requests.filter(r => r.includes('/lm/reorder')), 'the drop sent a reorder').toHaveLength(1);
       expect(await lm.order(), 'DOM order').toEqual([z, x, y, s1, s2]);
@@ -166,7 +161,7 @@ test.describe('drag to reorder', () => {
   });
 
   test.describe('when the server refuses the reorder', () => {
-    test.use({ allowedPageProblems: [/reorder (rejected|failed)|status of 500/] });
+    test.use({ allowedPageProblems: [/status of 500/] });
 
     test('S20: a refused reorder is reported and the screen goes back to the stored order', async ({ page }) => {
       const lm = new LayoutPage(page, 'narrow');
@@ -180,7 +175,6 @@ test.describe('drag to reorder', () => {
       await lm.settle();
       expect(await lm.serverOrder(), 'stored order').toEqual([a, b, c]);
 
-      test.fail(true, 'S20: the script only logs the failure; the dragged order stays on screen though nothing was saved');
       await expect(page.getByText('An unexpected error occurred')).toBeVisible({ timeout: 2_000 });
       expect(await lm.order(), 'order on screen').toEqual([a, b, c]);
     });
@@ -195,7 +189,6 @@ test.describe('drag to reorder', () => {
     await lm.dragOnto(a, c);
     expect(await lm.order()).toEqual([b, c, a]);
 
-    test.fail(true, 'S18: the reorder response is swapped in without htmx\'s nonce rewrite, so htmx strips every control');
     await lm.control(b, 'Remove block').click();
     await lm.settle();
     expect(lm.requests.filter(r => r.includes('/lm/remove')), 'Remove sent a request').toHaveLength(1);

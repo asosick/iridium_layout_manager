@@ -21,13 +21,13 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing/fstest"
 
 	"github.com/a-h/templ"
-	"github.com/iridiumgo/iridium/bootstrap/auth"
 	iridiumconfig "github.com/iridiumgo/iridium/config"
 	"github.com/iridiumgo/iridium/core/asset"
 	"github.com/iridiumgo/iridium/core/auth/user"
@@ -65,17 +65,6 @@ var LayoutPages = []string{
 	PageNoReorder, PageNoResize, PageZen, PageHooks, PageSource,
 }
 
-// The plugin's default persistence: the working draft and the snapshot Done
-// commits, each in its own gorilla session, keyed by the page's slug (which
-// Iridium stores with a leading slash).
-const (
-	draftSession     = "layout-manager"
-	committedSession = "layout-manager-committed"
-)
-
-func draftKey(slug string) string     { return "layout:/" + slug }
-func committedKey(slug string) string { return "layout:/" + slug + ":committed" }
-
 //go:embed static
 var staticFS embed.FS
 
@@ -85,6 +74,7 @@ var created atomic.Bool
 type App struct {
 	Mux *http.ServeMux
 
+	pages   map[string]*layoutmgr.LayoutManagerPage
 	renders *counters
 	hooks   *hookDB
 
@@ -101,6 +91,7 @@ func New() *App {
 	}
 	a := &App{
 		Mux:        http.NewServeMux(),
+		pages:      make(map[string]*layoutmgr.LayoutManagerPage),
 		renders:    newCounters(),
 		hooks:      &hookDB{},
 		sourceKeys: slices.Clone(defaultSourceKeys),
@@ -153,6 +144,7 @@ func (a *App) panel() *panel.Panel {
 	}
 	items := make([]IPanel.IPanelItem, 0, len(pages)+1)
 	for _, p := range pages {
+		a.pages[strings.TrimPrefix(p.SlugStr, "/")] = p
 		items = append(items, p)
 	}
 	items = append(items, pagepanel.NewCustomPanelPage("Elsewhere", PageElsewhere).
@@ -229,7 +221,7 @@ func (h *hookDB) load(*http.Request) (layoutmgr.LayoutState, error) {
 	return state, err
 }
 
-// --- signed-in user ------------------------------------------------------------
+// --- signed-in users ------------------------------------------------------------
 
 type e2eUser struct{ id uint }
 
@@ -239,20 +231,46 @@ func (u e2eUser) GetPasswordHash() string                    { return "" }
 func (u e2eUser) GetByID(uint) (user.IUser, error)           { return u, nil }
 func (u e2eUser) GetByIdentifier(string) (user.IUser, error) { return u, nil }
 
-// signedIn signs every panel request in as user 1, as a production panel's
+const (
+	// userCookie names the user a browser is signed in as. Each new browser
+	// (Playwright context, Go cookie jar) gets a user of its own, so its
+	// layouts start empty; a test can share one between browsers to play
+	// one user on two devices.
+	userCookie = "e2e-user"
+	// anonymousCookie set to 1 leaves a browser signed out.
+	anonymousCookie = "e2e-anonymous"
+)
+
+var lastUserID atomic.Uint64
+
+// signedIn signs each browser in as its own user, as a production panel's
 // session middleware would.
 func signedIn(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), ctxkeys.User, user.IUser(e2eUser{id: 1}))
+		if c, err := r.Cookie(anonymousCookie); err == nil && c.Value == "1" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var id uint64
+		if c, err := r.Cookie(userCookie); err == nil {
+			id, _ = strconv.ParseUint(c.Value, 10, 32)
+		}
+		if id == 0 {
+			id = lastUserID.Add(1)
+			http.SetCookie(w, &http.Cookie{Name: userCookie, Value: strconv.FormatUint(id, 10), Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode})
+			r.AddCookie(&http.Cookie{Name: userCookie, Value: strconv.FormatUint(id, 10)})
+		}
+		ctx := context.WithValue(r.Context(), ctxkeys.User, user.IUser(e2eUser{id: uint(id)}))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 // --- test-only routes ----------------------------------------------------------
 
-// StateDoc is the body of GET and POST /e2e/state: the raw JSON stored in the
-// draft and committed sessions for one page. On POST an absent field is left
-// alone and null deletes the stored value.
+// StateDoc is the body of GET and POST /e2e/state for one page and the
+// requesting browser's user. GET answers the draft edit mode shows and the
+// committed layout view mode shows. POST sets them: a draft (absent or null:
+// no unsaved edits) and a committed layout (absent: unchanged).
 type StateDoc struct {
 	Draft     json.RawMessage `json:"draft"`
 	Committed json.RawMessage `json:"committed"`
@@ -270,12 +288,6 @@ type HooksDoc struct {
 func (a *App) registerTestRoutes() {
 	a.Mux.HandleFunc("GET /e2e/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
-	})
-	// GET /e2e/blank: an empty document on the app's origin, for specs that
-	// need to run fetch with the browser's cookies before opening a page.
-	a.Mux.HandleFunc("GET /e2e/blank", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, "<!doctype html><title>blank</title>")
 	})
 
 	// POST /e2e/reset restores everything the server holds between tests:
@@ -298,29 +310,28 @@ func (a *App) registerTestRoutes() {
 		writeJSON(w, a.renders.snapshot())
 	})
 
-	// GET /e2e/state?page=<slug>: the layout state the server will read for
-	// the cookies this request carries.
-	a.Mux.HandleFunc("GET /e2e/state", func(w http.ResponseWriter, r *http.Request) {
-		slug, ok := layoutSlug(w, r)
+	// GET /e2e/state?page=<slug>: the layouts the page keeps for this
+	// browser's user.
+	a.Mux.Handle("GET /e2e/state", signedIn(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page, ok := a.layoutPage(w, r)
 		if !ok {
 			return
 		}
-		var doc StateDoc
-		var err error
-		if doc.Draft, err = readSession(r, draftSession, draftKey(slug)); err == nil {
-			doc.Committed, err = readSession(r, committedSession, committedKey(slug))
-		}
+		draft, committed, err := page.Layouts(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		var doc StateDoc
+		doc.Draft, _ = json.Marshal(draft)
+		doc.Committed, _ = json.Marshal(committed)
 		writeJSON(w, doc)
-	})
+	})))
 
-	// POST /e2e/state?page=<slug>: plant raw state in the sessions, as if an
-	// earlier version of the app (or another tab) had written it.
-	a.Mux.HandleFunc("POST /e2e/state", func(w http.ResponseWriter, r *http.Request) {
-		slug, ok := layoutSlug(w, r)
+	// POST /e2e/state?page=<slug>: plant layouts for this browser's user, as
+	// an earlier visit (or an administrator) would have left them.
+	a.Mux.Handle("POST /e2e/state", signedIn(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page, ok := a.layoutPage(w, r)
 		if !ok {
 			return
 		}
@@ -329,16 +340,26 @@ func (a *App) registerTestRoutes() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := writeSession(w, r, draftSession, draftKey(slug), doc.Draft); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		draft, err := decodeState(doc.Draft)
+		if err == nil {
+			var committed *layoutmgr.LayoutState
+			if committed, err = decodeState(doc.Committed); err == nil {
+				page.SetLayouts(w, r, draft, committed)
+			}
 		}
-		if err := writeSession(w, r, committedSession, committedKey(slug), doc.Committed); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
+	})))
+
+	// GET /e2e/blank: an empty document on the app's origin, signed in, for
+	// specs that run fetch with the browser's cookies before opening a page.
+	a.Mux.Handle("GET /e2e/blank", signedIn(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<!doctype html><title>blank</title>")
+	})))
 
 	a.Mux.HandleFunc("GET /e2e/hooks", func(w http.ResponseWriter, _ *http.Request) {
 		a.hooks.mu.Lock()
@@ -389,42 +410,25 @@ func (a *App) registerTestRoutes() {
 	})
 }
 
-func layoutSlug(w http.ResponseWriter, r *http.Request) (string, bool) {
-	slug := r.URL.Query().Get("page")
-	if !slices.Contains(LayoutPages, slug) {
+func (a *App) layoutPage(w http.ResponseWriter, r *http.Request) (*layoutmgr.LayoutManagerPage, bool) {
+	page, ok := a.pages[r.URL.Query().Get("page")]
+	if !ok {
 		http.Error(w, "unknown page", http.StatusBadRequest)
-		return "", false
 	}
-	return slug, true
+	return page, ok
 }
 
-func readSession(r *http.Request, name, key string) (json.RawMessage, error) {
-	sess, err := auth.Store.Get(r, name)
-	if err != nil {
+// decodeState reads a planted layout; absent or null is nil. The legacy
+// single-layout shape ({"blocks": [...]}) is accepted, as on load.
+func decodeState(raw json.RawMessage) (*layoutmgr.LayoutState, error) {
+	if raw == nil || string(raw) == "null" {
+		return nil, nil
+	}
+	var state layoutmgr.LayoutState
+	if err := json.Unmarshal(raw, &state); err != nil {
 		return nil, err
 	}
-	raw, ok := sess.Values[key].(string)
-	if !ok {
-		return json.RawMessage("null"), nil
-	}
-	return json.RawMessage(raw), nil
-}
-
-func writeSession(w http.ResponseWriter, r *http.Request, name, key string, raw json.RawMessage) error {
-	if raw == nil {
-		return nil
-	}
-	// An undecodable cookie still yields a fresh session, which replaces it.
-	sess, err := auth.Store.Get(r, name)
-	if sess == nil {
-		return err
-	}
-	if string(raw) == "null" {
-		delete(sess.Values, key)
-	} else {
-		sess.Values[key] = string(raw)
-	}
-	return sess.Save(r, w)
+	return &state, nil
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

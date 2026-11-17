@@ -1,76 +1,45 @@
 package views
 
 import (
-    "github.com/iridiumgo/iridium/core/security/csp"
     "strconv"
 
     "github.com/iridiumgo/iridium-icons/icon/icons"
 )
 
-// Block renders one placed block, including its edit controls (hidden in
-// view mode). Drag handle, remove, +/- resize, full-width toggle.
+// Block renders one placed block as a layout_manager_block Alpine component
+// (static/layout_manager.js): it owns its span, its controls and the masonry
+// row span its content needs. Edits go through the page's request queue and
+// change the block in place, so an edit never re-renders the other blocks.
 //
 // All icon-only controls use iridium-icons so they theme with the host
-// (including dark mode) and the chrome buttons use iridium's btn-* classes
-// for the same reason.
+// (including dark mode).
 templ Block(d *PageData, b BlockData) {
     <div
         class="lm-block"
         data-lm-block
         data-id={ b.ID }
         data-cols={ strconv.Itoa(b.Cols) }
+        data-remove-url={ b.RemoveURL }
+        data-resize-url={ b.ResizeURL }
+        data-move-url={ b.MoveURL }
+        x-data="layout_manager_block"
+        :data-cols="cols"
         if d.AllowReorder {
             x-sort:item={ strconv.Quote(b.ID) }
         }
     >
         <div class="lm-block-controls" x-show="editMode" x-cloak>
-            <button
-                type="button"
-                class="lm-block-btn lm-block-btn-danger"
-                aria-label="Remove block"
-                title="Remove"
-                hx-post={ b.RemoveURL }
-                { csp.HTMXNonceAttrs(ctx)... }
-                hx-target="[data-lm-grid]"
-                hx-swap="outerHTML"
-            >
+            <button type="button" class="lm-block-btn lm-block-btn-danger" aria-label="Remove block" title="Remove" @click="remove">
                 @icons.Trash.Component()
             </button>
             if d.AllowResize {
-                <button
-                    type="button"
-                    class="lm-block-btn"
-                    aria-label="Decrease size"
-                    title="Decrease size"
-                    hx-post={ b.ResizeDecURL }
-                    { csp.HTMXNonceAttrs(ctx)... }
-                    hx-target="[data-lm-grid]"
-                    hx-swap="outerHTML"
-                >
+                <button type="button" class="lm-block-btn" aria-label="Decrease size" title="Decrease size" @click="shrink">
                     @icons.Minus.Component()
                 </button>
-                <button
-                    type="button"
-                    class="lm-block-btn"
-                    aria-label="Increase size"
-                    title="Increase size"
-                    hx-post={ b.ResizeIncURL }
-                    { csp.HTMXNonceAttrs(ctx)... }
-                    hx-target="[data-lm-grid]"
-                    hx-swap="outerHTML"
-                >
+                <button type="button" class="lm-block-btn" aria-label="Increase size" title="Increase size" @click="grow">
                     @icons.Plus.Component()
                 </button>
-                <button
-                    type="button"
-                    class="lm-block-btn"
-                    aria-label="Toggle full width"
-                    title="Toggle full width"
-                    hx-post={ b.ResizeToggleURL }
-                    { csp.HTMXNonceAttrs(ctx)... }
-                    hx-target="[data-lm-grid]"
-                    hx-swap="outerHTML"
-                >
+                <button type="button" class="lm-block-btn" aria-label="Toggle full width" title="Toggle full width" @click="toggleFull">
                     @icons.Maximize.Component()
                 </button>
             }
@@ -80,11 +49,9 @@ templ Block(d *PageData, b BlockData) {
                     class="lm-block-btn"
                     aria-label="Move block left"
                     title="Move left"
-                    hx-post={ b.MoveLeftURL }
-                    { csp.HTMXNonceAttrs(ctx)... }
-                    hx-target="[data-lm-grid]"
-                    hx-swap="outerHTML"
+                    @click="moveLeft"
                     disabled?={ !b.CanMoveLeft }
+                    :disabled="atStart()"
                 >
                     @icons.ChevronLeft.Component()
                 </button>
@@ -93,11 +60,9 @@ templ Block(d *PageData, b BlockData) {
                     class="lm-block-btn"
                     aria-label="Move block right"
                     title="Move right"
-                    hx-post={ b.MoveRightURL }
-                    { csp.HTMXNonceAttrs(ctx)... }
-                    hx-target="[data-lm-grid]"
-                    hx-swap="outerHTML"
+                    @click="moveRight"
                     disabled?={ !b.CanMoveRight }
+                    :disabled="atEnd()"
                 >
                     @icons.ChevronRight.Component()
                 </button>
@@ -114,9 +79,9 @@ templ Block(d *PageData, b BlockData) {
                 type="button"
                 class="lm-resize-handle"
                 data-lm-resize-handle
-                data-resize-url={ b.ResizeURL }
                 x-show="editMode"
                 x-cloak
+                @pointerdown="startResize"
                 aria-label="Drag to resize block"
                 title="Drag to resize"
             >

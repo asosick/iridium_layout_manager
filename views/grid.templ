@@ -1,27 +1,34 @@
 package views
 
-import "fmt"
+import (
+    "fmt"
+    "strconv"
+    "strings"
+)
 
-// Grid renders the block container. Pulled out of LayoutManagerComponent so
-// it can be the htmx swap target (each mutation re-renders just this
-// component and morph-swaps it). The outer attribute set:
+// Grid renders the block container: the swap target when the user switches
+// page or resets. Edits change it in place (see layout_manager.js). The outer
+// attribute set:
 //
-//   - data-lm-grid:        marker for hx-target and Alpine queries.
-//   - data-reorder-url:    the POST endpoint our JS calls after a drag.
-//   - x-sort=...:          Alpine sort plugin (already bundled by iridium-core)
-//                          drives drag-to-reorder; the handler is provided by
-//                          our layout_manager Alpine component.
-//   - x-sort:config:       restrict drag initiation to .lm-block-handle so a
-//                          click anywhere else in the block doesn't grab it.
+//   - data-lm-grid:        marker for the script.
+//   - data-lm-populated:   which pages hold blocks, for the page selector.
+//   - data-lm-unsaved:     whether the user has a draft that differs from
+//                          the committed layout shown in view mode.
+//   - data-reorder-url:    the POST endpoint the script calls after a drag.
+//   - x-sort:              Alpine sort plugin (bundled by iridium-core)
+//                          drives drag-to-reorder; only blocks are items,
+//                          and only their handle starts a drag.
 templ Grid(d *PageData) {
     <div
         class="lm-grid"
         style={ fmt.Sprintf("--lm-cols:%d", d.GridColumns) }
         data-lm-grid
+        data-lm-populated={ populatedFlags(d) }
+        data-lm-unsaved={ strconv.FormatBool(d.Unsaved) }
         data-reorder-url={ d.ReorderURL }
         if d.AllowReorder {
             x-sort
-            x-sort:config="{ handle: '.lm-block-handle' }"
+            x-sort:config="{ handle: '.lm-block-handle', draggable: '[data-lm-block]' }"
         }
     >
         if d.AllowResize {
@@ -31,13 +38,23 @@ templ Grid(d *PageData) {
                 }
             </div>
         }
-        if len(d.Blocks) == 0 {
-            <div class="lm-empty">
-                No blocks yet. Click Edit and pick a block to add.
-            </div>
-        }
+        <div class="lm-empty">
+            No blocks yet. Click Edit and pick a block to add.
+        </div>
         for _, b := range d.Blocks {
             @Block(d, b)
         }
     </div>
+}
+
+// populatedFlags lists, per page, whether it holds blocks: "1,0,1".
+func populatedFlags(d *PageData) string {
+    flags := make([]string, len(d.LayoutContent))
+    for i, has := range d.LayoutContent {
+        flags[i] = "0"
+        if has {
+            flags[i] = "1"
+        }
+    }
+    return strings.Join(flags, ",")
 }

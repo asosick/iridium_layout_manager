@@ -5,8 +5,8 @@
  * - Every worker starts its own E2E server on a free port, so workers never
  *   share the server's state (render counts, the hooks "database", the block
  *   source's keys). Set E2E_SERVER_URL to use a running server (--workers=1).
- * - Every test starts from POST /e2e/reset. Layout state itself lives in the
- *   browser's cookies, so each test's fresh context starts with no layout.
+ * - Every test starts from POST /e2e/reset. The test app signs each new
+ *   browser context in as a user of its own, so it starts with no layout.
  * - Every test fails when a page in its context throws, reports a
  *   Content-Security-Policy violation or logs a console error, even if its
  *   own assertions passed. A test that causes one on purpose lists it with
@@ -30,7 +30,7 @@ type Fixtures = {
 };
 
 type WorkerFixtures = {
-  /** Serve HTTPS (self-signed). WebKit keeps the plugin's Secure cookies only over HTTPS. */
+  /** Serve HTTPS (self-signed), as WebKit's projects do. */
   e2eTLS: boolean;
   e2eServerURL: string;
 };

@@ -15,6 +15,7 @@ test.describe('add and remove', () => {
     const stats = await lm.addBlock('stats');
     await expect(lm.block(stats).getByText('Revenue', { exact: true })).toBeVisible();
 
+    await lm.done();
     await lm.reload();
     expect(await lm.order()).toHaveLength(8);
     expect(await lm.serverOrder()).toEqual(await lm.order());
@@ -29,6 +30,7 @@ test.describe('add and remove', () => {
 
     await lm.remove(first);
     expect(await lm.order()).toEqual([second]);
+    await lm.done();
     await lm.reload();
     expect(await lm.order()).toEqual([second]);
   });
@@ -45,16 +47,14 @@ test.describe('add and remove', () => {
   test('removing the last block brings back the empty state', async ({ page }) => {
     const lm = await openEditor(page);
     const id = await lm.addBlock('short');
-    await expect(page.locator('.lm-empty')).toHaveCount(0);
+    await expect(page.locator('.lm-empty')).toBeHidden();
     await lm.remove(id);
     await expect(page.locator('.lm-empty')).toBeVisible();
     expect(await lm.serverOrder()).toEqual([]);
   });
 
-  test.describe('at the cookie ceiling', () => {
-    test.use({ allowedPageProblems: [/status of 500/] });
-
-    test('S4: a 31st block cannot be added; the user sees an error and the grid is unchanged', async ({ page }) => {
+  test.describe('past the old cookie ceiling', () => {
+    test('S4: a 31st block is added like any other', async ({ page }) => {
       const lm = new LayoutPage(page);
       const blocks = Array.from({ length: 30 }, (_, i) => ({ id: `0000000${i}`.slice(-8) + '-0000-4000-8000-000000000000', type: 'short', cols: 1 }));
       await lm.plant({ layouts: [{ blocks }, { blocks: [] }, { blocks: [] }] });
@@ -62,7 +62,6 @@ test.describe('add and remove', () => {
       await lm.edit();
       expect(await lm.order()).toHaveLength(30);
 
-      test.fail(true, 'S4: the layout lives in one 4 KB cookie; 30 blocks fill it');
       await lm.page.locator('[data-lm-type-select]').selectOption('short');
       await Promise.all([
         page.waitForResponse(r => r.url().includes('/lm/add')),

@@ -7,7 +7,6 @@ package layoutmgr_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -87,9 +86,26 @@ func newClientOn(t *testing.T, srv *httptest.Server) *client {
 // hosts as secure origins even over HTTP, a LAN host name they do not.
 func newClientAt(t *testing.T, srv *httptest.Server, base string) *client {
 	t.Helper()
+	return openClient(t, srv, base, false)
+}
+
+// newAnonymousClientAt opens a browser that is not signed in.
+func newAnonymousClientAt(t *testing.T, srv *httptest.Server, base string) *client {
+	t.Helper()
+	return openClient(t, srv, base, true)
+}
+
+// openClient opens a browser. The test app signs each new browser in as a
+// user of its own, so its layouts start empty.
+func openClient(t *testing.T, srv *httptest.Server, base string, anonymous bool) *client {
+	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if anonymous {
+		u, _ := url.Parse(base)
+		jar.SetCookies(u, []*http.Cookie{{Name: "e2e-anonymous", Value: "1", Path: "/"}})
 	}
 	hc := *srv.Client()
 	hc.Jar = jar
@@ -208,9 +224,8 @@ func (c *client) addBlock(slug string, layout int, kind string) string {
 // --- stored state ----------------------------------------------------------------
 
 type stored struct {
-	present bool
-	state   layoutmgr.LayoutState
-	raw     string
+	state layoutmgr.LayoutState
+	raw   string
 }
 
 func (s stored) layout(i int) []layoutmgr.Block {
@@ -228,7 +243,8 @@ func (s stored) ids(i int) []string {
 	return out
 }
 
-// stateDoc reads what the server will see for this client's cookies.
+// stateDoc reads this client's user's layouts: the draft edit mode shows and
+// the committed layout view mode shows.
 func (c *client) stateDoc(slug string) (draft, committed stored) {
 	c.t.Helper()
 	r := c.get("/e2e/state?page=" + slug)
@@ -247,7 +263,7 @@ func (c *client) decode(raw json.RawMessage) stored {
 	if raw == nil || string(raw) == "null" {
 		return stored{}
 	}
-	s := stored{present: true, raw: string(raw)}
+	s := stored{raw: string(raw)}
 	if err := json.Unmarshal(raw, &s.state); err != nil {
 		c.t.Fatalf("decode stored layout %s: %v", raw, err)
 	}
@@ -266,20 +282,27 @@ func (c *client) committed(slug string) stored {
 	return cm
 }
 
-// plant writes raw JSON into the page's draft and/or committed session, as
-// an earlier release (or another tab) would have.
-func (c *client) plant(slug string, draft, committed any) {
+// plant gives this client's user a committed layout, with no unsaved edits.
+func (c *client) plant(slug string, saved any) {
 	c.t.Helper()
-	doc := map[string]any{}
-	if draft != nil {
-		doc["draft"] = draft
+	c.postState("/e2e/state?page="+slug, map[string]any{"committed": saved})
+}
+
+func (c *client) postState(path string, doc map[string]any) {
+	c.t.Helper()
+	if r := c.postJSON(path, doc); r.status != http.StatusNoContent {
+		c.t.Fatalf("POST %s: %d %s", path, r.status, r.body)
 	}
-	if committed != nil {
-		doc["committed"] = committed
+}
+
+// editGrid loads the grid edit mode shows for one layout (the draft).
+func (c *client) editGrid(slug string, layout int) response {
+	c.t.Helper()
+	r := c.get(lm(slug, "select", "layout="+strconv.Itoa(layout), "mode=edit"))
+	if r.status != http.StatusOK {
+		c.t.Fatalf("select: %d %s", r.status, r.body)
 	}
-	if r := c.postJSON("/e2e/state?page="+slug, doc); r.status != http.StatusNoContent {
-		c.t.Fatalf("plant: %d %s", r.status, r.body)
-	}
+	return r
 }
 
 // --- concurrency ---------------------------------------------------------------
@@ -337,44 +360,4 @@ func gridIDs(html string) []string {
 		out = append(out, b.id)
 	}
 	return out
-}
-
-// --- known defects -------------------------------------------------------------
-
-// checker collects the failures of a check run by knownDefect.
-type checker struct{ failures []string }
-
-type defectReproduced struct{}
-
-func (c *checker) Errorf(format string, args ...any) {
-	c.failures = append(c.failures, fmt.Sprintf(format, args...))
-}
-
-func (c *checker) Fatalf(format string, args ...any) {
-	c.Errorf(format, args...)
-	panic(defectReproduced{})
-}
-
-// knownDefect is the Go counterpart of Playwright's test.fail(): check
-// asserts the behaviour the plugin should have, and is expected to fail
-// because of the named suspect. The test passes while the defect reproduces
-// (logging what the check saw) and fails once the check passes, so a fix
-// has to remove the marker.
-func knownDefect(t *testing.T, suspect string, check func(c *checker)) {
-	t.Helper()
-	c := &checker{}
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				if _, ok := r.(defectReproduced); !ok {
-					panic(r)
-				}
-			}
-		}()
-		check(c)
-	}()
-	if len(c.failures) == 0 {
-		t.Fatalf("%s no longer reproduces: the check passed. Remove knownDefect and keep the check as a regression test.", suspect)
-	}
-	t.Logf("%s reproduces: %s", suspect, strings.Join(c.failures, "; "))
 }

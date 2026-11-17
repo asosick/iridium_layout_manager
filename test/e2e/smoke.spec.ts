@@ -60,7 +60,7 @@ test.describe('smoke', () => {
     await lm.edit();
     const id = await lm.addBlock('short');
     await expect(lm.block(id).locator('[data-e2e-kind="short"]')).toHaveAttribute('data-e2e-id', id);
-    await expect(lm.page.locator('.lm-empty')).toHaveCount(0);
+    await expect(lm.page.locator('.lm-empty')).toBeHidden();
 
     await lm.done();
     await expect(page.getByText('Layout saved')).toBeVisible();

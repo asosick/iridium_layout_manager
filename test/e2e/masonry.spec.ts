@@ -102,7 +102,6 @@ test.describe('masonry', () => {
     const drift = await stopFrameSampler(page);
     await testInfo.attach('largest drift per block (px)', { body: JSON.stringify(drift, null, 2), contentType: 'application/json' });
 
-    test.fail(true, 'S5: every edit re-renders every block; late content (grow) collapses and regrows, moving the blocks below it');
     expect({ [grow]: drift[grow], [a]: drift[a], [b]: drift[b], [c]: drift[c] }).toEqual({ [grow]: 0, [a]: 0, [b]: 0, [c]: 0 });
   });
 });

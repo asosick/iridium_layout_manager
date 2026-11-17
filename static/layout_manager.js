@@ -1,184 +1,276 @@
 // Iridium Layout Manager — client glue.
 //
-// Iridium's Alpine build is CSP-mode, so reactivity is registered through a
-// named Alpine.data component. Iridium loads this plugin asset globally before
-// Alpine starts, which also makes it available to later HTMX page fragments.
+// Two Alpine components (registered with Alpine.data, as Iridium's Alpine
+// build is CSP-mode):
+//
+//   layout_manager        the page: modes, pages, the toolbar, the order of
+//                         the blocks and the one queue every request goes
+//                         through, so each edit reaches the server after the
+//                         one before it has landed.
+//   layout_manager_block  one block: its span, its controls, drag-to-resize
+//                         and the masonry row span its content needs. It sits
+//                         inside the page component, so it reaches the page's
+//                         state and methods through Alpine's scope.
+//
+// Edits change the page in place: the server answers 204 (or, for Add, the
+// one new block), and the other blocks keep their state. Only switching page,
+// entering edit mode with unsaved changes, and Reset load a whole grid.
+//
+// Iridium loads this plugin asset before Alpine starts, which also makes the
+// components available to later HTMX page fragments.
 
 (function () {
-    const COMPONENT_NAME = 'layout_manager';
+    // Keys typed into these never switch page.
+    const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
 
-    const componentFactory = () => ({
+    const layoutManager = () => ({
         editMode: false,
-        // Mirrors the first <option> by default; the form posts the bound
-        // value, so this just keeps the visible select state in sync.
+        // Mirrors the first <option> by default; Add posts the bound value.
         selectedType: '',
-        // Which page (layout) is currently shown. Drives the selector-button
-        // highlight and is posted (via the hidden "layout" input) on Add.
+        // Which page (layout) is shown: the selector highlight and every
+        // request's layout.
         currentLayout: 0,
-        // Total customizable pages — used to bound the cmd/ctrl+N hotkeys.
         layoutCount: 1,
-        // Endpoint the grid is swapped from when switching pages.
-        selectUrl: '',
+        // Which pages hold blocks, from the grid shown (data-lm-populated).
+        populated: [],
+        // The block IDs in the order they show.
+        order: [],
         lockAfterDone: true,
         zenMode: false,
-        // Prevent Save from racing the session cookie written by reorder.
-        reorderPending: false,
-        // Bound document keydown handler, kept so we can detach on destroy.
-        _hotkeyHandler: null,
-        _zenEscapeHandler: null,
-        _sortHandler: null,
-        _pointerDownHandler: null,
-        _resizeState: null,
-        _resizeMoveHandler: null,
-        _resizeEndHandler: null,
-        _masonryObserver: null,
-        _masonryFrame: null,
-        _afterSwapHandler: null,
-        _windowResizeHandler: null,
+        // The page root. Not this.$el: in a method an Alpine directive calls
+        // (@click on a toolbar button), $el is that button.
+        _root: null,
+        _urls: null,
+        _queue: null,
+        _reorderQueued: false,
+        _listeners: null,
 
         init() {
-            const select = this.$el.querySelector('[data-lm-type-select]');
-            if (select && select.options.length > 0) {
-                this.selectedType = select.options[0].value;
-            }
-
-            // Read multi-page config off the root element's data-* attributes.
             const root = this.$el;
-            this.selectUrl = root.dataset.lmSelectUrl || '';
-            this.lockAfterDone = root.dataset.lmLockAfterDone !== 'false';
-            this.editMode = root.dataset.lmEditDefault === 'true';
-            this.layoutCount = parseInt(root.dataset.lmLayoutCount || '1', 10) || 1;
-            this.currentLayout = parseInt(root.dataset.lmCurrentLayout || '0', 10) || 0;
+            this._root = root;
+            const select = root.querySelector('[data-lm-type-select]');
+            if (select && select.options.length > 0) this.selectedType = select.options[0].value;
 
-            // cmd/ctrl + 1..9 switches pages (matches the Filament original).
-            this._hotkeyHandler = (e) => this.onHotkey(e);
-            document.addEventListener('keydown', this._hotkeyHandler);
+            const data = root.dataset;
+            this._urls = {
+                select: data.lmSelectUrl || '',
+                add: data.lmAddUrl || '',
+                save: data.lmSaveUrl || '',
+                reset: data.lmResetUrl || '',
+            };
+            this.lockAfterDone = data.lmLockAfterDone !== 'false';
+            this.editMode = data.lmEditDefault === 'true';
+            this.layoutCount = parseInt(data.lmLayoutCount || '1', 10) || 1;
+            this.currentLayout = parseInt(data.lmCurrentLayout || '0', 10) || 0;
+            this._queue = Promise.resolve();
 
+            // Kept so destroy() can detach them when Iridium's single-page
+            // navigation takes the page away.
+            this._listeners = {
+                hotkey: (e) => this.onHotkey(e),
+                zenEscape: (e) => this.onZenEscape(e),
+                // SortableJS reports a finished drag as a 'sort' event on the
+                // grid; a sortable list inside a block reports its own.
+                sort: (e) => {
+                    if (e.target === this.grid()) this.handleReorder();
+                },
+            };
+            document.addEventListener('keydown', this._listeners.hotkey);
             // Capture Escape before page-level shortcuts so leaving Zen mode
             // cannot trigger another action on the same key press.
-            this._zenEscapeHandler = (e) => this.onZenEscape(e);
-            window.addEventListener('keydown', this._zenEscapeHandler, true);
-
-            // Listen to SortableJS directly. Alpine's CSP evaluator can move
-            // the elements while still failing to invoke an x-sort expression.
-            this._sortHandler = (e) => {
-                const grid = this.$el.querySelector('[data-lm-grid]');
-                if (grid && e.target === grid) this.handleReorder();
-            };
-            this.$el.addEventListener('sort', this._sortHandler);
-
-            this._pointerDownHandler = (e) => {
-                const handle = e.target.closest('[data-lm-resize-handle]');
-                if (handle && this.$el.contains(handle)) this.startResize(e, handle);
-            };
-            this.$el.addEventListener('pointerdown', this._pointerDownHandler);
-
-            this._afterSwapHandler = (e) => {
-                if (e.target && this.$el.contains(e.target)) this.setupMasonry();
-            };
-            this.$el.addEventListener('htmx:after:swap', this._afterSwapHandler);
-
-            this._windowResizeHandler = () => this.scheduleMasonry();
-            window.addEventListener('resize', this._windowResizeHandler, { passive: true });
-            this.$watch('editMode', () => this.$nextTick(() => this.scheduleMasonry()));
-            this.setupMasonry();
+            window.addEventListener('keydown', this._listeners.zenEscape, true);
+            root.addEventListener('sort', this._listeners.sort);
+            this.gridShown();
         },
 
         destroy() {
-            if (this._hotkeyHandler) {
-                document.removeEventListener('keydown', this._hotkeyHandler);
-                this._hotkeyHandler = null;
-            }
-            if (this._zenEscapeHandler) {
-                window.removeEventListener('keydown', this._zenEscapeHandler, true);
-                this._zenEscapeHandler = null;
-            }
-            if (this._sortHandler) {
-                this.$el.removeEventListener('sort', this._sortHandler);
-                this._sortHandler = null;
-            }
-            if (this._pointerDownHandler) {
-                this.$el.removeEventListener('pointerdown', this._pointerDownHandler);
-                this._pointerDownHandler = null;
-            }
-            if (this._afterSwapHandler) {
-                this.$el.removeEventListener('htmx:after:swap', this._afterSwapHandler);
-                this._afterSwapHandler = null;
-            }
-            if (this._windowResizeHandler) {
-                window.removeEventListener('resize', this._windowResizeHandler);
-                this._windowResizeHandler = null;
-            }
-            if (this._masonryObserver) {
-                this._masonryObserver.disconnect();
-                this._masonryObserver = null;
-            }
-            if (this._masonryFrame) {
-                window.cancelAnimationFrame(this._masonryFrame);
-                this._masonryFrame = null;
-            }
-            this.cleanupResize();
+            const l = this._listeners;
+            if (!l) return;
+            document.removeEventListener('keydown', l.hotkey);
+            window.removeEventListener('keydown', l.zenEscape, true);
+            this._root.removeEventListener('sort', l.sort);
+            this._listeners = null;
         },
 
-        // onHotkey switches pages on (cmd|ctrl)+N. Ignored when N is out of
-        // range or when there's only one page. We preventDefault so the
-        // page-switch wins even though some browsers map cmd+N to tab switching.
-        onHotkey(e) {
-            if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-            if (this.layoutCount <= 1) return;
-            const n = parseInt(e.key, 10);
-            if (isNaN(n) || n < 1 || n > this.layoutCount) return;
-            e.preventDefault();
-            this.selectLayout(n - 1);
+        // --- the grid -----------------------------------------------------------
+
+        grid() {
+            return this._root.querySelector('[data-lm-grid]');
         },
 
-        // selectLayout swaps the grid to the requested page and updates the
-        // active-button highlight. The server re-renders the grid (and OOB-
-        // refreshes the selector strip) for that layout, keeping its per-block
-        // mutation URLs correct.
-        selectLayout(i) {
-            this.currentLayout = i;
-            if (!this.selectUrl || !window.htmx) return;
-            const grid = this.$root.querySelector('[data-lm-grid]');
+        blockElements() {
+            const grid = this.grid();
+            return grid ? Array.from(grid.querySelectorAll(':scope > [data-lm-block]')) : [];
+        },
+
+        // A grid was rendered: read its pages and order, then switch masonry
+        // on once its blocks have measured themselves.
+        gridShown() {
+            const grid = this.grid();
             if (!grid) return;
-            window.htmx.ajax('GET', this.selectUrl + '?layout=' + i, {
-                target: grid,
-                swap: 'outerHTML',
-            }).catch(err => {
-                console.error('[layoutmgr] selectLayout failed', err);
+            this.populated = (grid.dataset.lmPopulated || '').split(',').map(flag => flag === '1');
+            this.syncOrder();
+            window.requestAnimationFrame(() => grid.classList.add('lm-masonry-ready'));
+        },
+
+        // Blocks were added, removed or moved in the grid shown.
+        syncOrder() {
+            this.order = this.blockElements().map(el => el.dataset.id);
+            if (this.currentLayout < this.populated.length) {
+                this.populated[this.currentLayout] = this.order.length > 0;
+            }
+        },
+
+        selectorsShown() {
+            return this.editMode || this.populated.filter(Boolean).length > 1;
+        },
+
+        pageShown(i) {
+            return this.editMode || !!this.populated[i];
+        },
+
+        // --- requests -------------------------------------------------------------
+
+        // enqueue runs task once every earlier task has finished.
+        enqueue(task) {
+            const run = this._queue.then(task).catch(err => {
+                console.error('[layoutmgr]', err);
+            });
+            this._queue = run;
+            return run;
+        },
+
+        // post sends an edit. A refused one is reported as Iridium reports a
+        // failed htmx request: an error toast with the server's message.
+        async post(url, body) {
+            const security = window.Alpine.store('security');
+            const headers = { 'HX-Request': 'true' };
+            if (security && security.csrf) headers['X-CSRF-Token'] = security.csrf;
+            if (body) headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            let response;
+            try {
+                response = await fetch(url, { method: 'POST', headers, credentials: 'same-origin', body });
+            } catch (err) {
+                this.notifyError('The server could not be reached.');
+                return { ok: false, status: 0, headers: new Headers() };
+            }
+            const token = response.headers.get('X-CSRF-Token');
+            if (token && security) security.csrf = token;
+            if (!response.ok) {
+                let description = '';
+                try { description = (await response.text()).trim(); } catch (err) { /* no body */ }
+                this.notifyError(description);
+                return response;
+            }
+            // The events the response names in HX-Trigger (Iridium's toasts).
+            const trigger = response.headers.get('HX-Trigger');
+            if (trigger) {
+                try {
+                    const events = JSON.parse(trigger);
+                    Object.keys(events).forEach(name => {
+                        window.dispatchEvent(new CustomEvent(name, { detail: events[name] }));
+                    });
+                } catch (err) { /* not JSON: no events */ }
+            }
+            return response;
+        },
+
+        notifyError(description) {
+            window.dispatchEvent(new CustomEvent('notify', {
+                detail: { type: 'error', message: 'Request failed', description },
+            }));
+        },
+
+        // swapGrid replaces the grid through htmx, which gives the new
+        // widgets' htmx controls this page's nonce and initialises them.
+        async swapGrid(method, url) {
+            const grid = this.grid();
+            if (!grid) return;
+            await window.htmx.ajax(method, url, { source: grid, target: grid, swap: 'outerHTML' });
+            this.gridShown();
+        },
+
+        loadPage(i) {
+            return this.swapGrid('GET', this._urls.select + '?layout=' + i + '&mode=' + (this.editMode ? 'edit' : 'view'));
+        },
+
+        // --- toolbar --------------------------------------------------------------
+
+        addBlock() {
+            const layout = this.currentLayout;
+            const url = this._urls.add + '?type=' + encodeURIComponent(this.selectedType) + '&layout=' + layout;
+            this.enqueue(async () => {
+                const grid = this.grid();
+                if (!grid || layout !== this.currentLayout) return;
+                await window.htmx.ajax('POST', url, { source: grid, target: grid, swap: 'beforeend' });
+                this.syncOrder();
             });
         },
 
-        toggleEdit() {
-            this.editMode = !this.editMode;
+        save() {
+            this.enqueue(async () => {
+                const response = await this.post(this._urls.save, 'layout=' + this.currentLayout);
+                if (!response.ok) return;
+                const grid = this.grid();
+                if (grid) grid.dataset.lmUnsaved = 'false';
+                if (this.lockAfterDone) this.editMode = false;
+                const next = parseInt(response.headers.get('X-Iridium-Layout-Manager-Next-Layout') || '', 10);
+                if (Number.isInteger(next) && next >= 0 && next < this.layoutCount && next !== this.currentLayout) {
+                    this.selectLayout(next);
+                }
+            });
+        },
+
+        // reset discards the draft and keeps editing; cancel also leaves edit
+        // mode, back to the committed layout.
+        reset() {
+            this.enqueue(() => this.swapGrid('POST', this._urls.reset + '?layout=' + this.currentLayout));
+        },
+
+        cancel() {
+            this.enqueue(async () => {
+                await this.swapGrid('POST', this._urls.reset + '?layout=' + this.currentLayout);
+                this.editMode = false;
+            });
         },
 
         startEditing() {
             this.editMode = true;
-        },
-
-        finishEditing(e) {
-            // htmx 4 exposes the request context (fetch-based) via e.detail.ctx
-            // instead of the removed e.detail.xhr.
-            const ctx = e.detail && e.detail.ctx;
-            if (!ctx || !this.lockAfterDone) return;
-            const status = ctx.response && ctx.response.status;
-            if (status >= 400) return;
-            this.editMode = false;
-            const headers = ctx.response && ctx.response.headers;
-            const raw = headers && headers.get('X-Iridium-Layout-Manager-Next-Layout');
-            const next = parseInt(raw, 10);
-            if (Number.isInteger(next) && next >= 0 && next < this.layoutCount && next !== this.currentLayout) {
-                this.selectLayout(next);
+            // View mode shows the committed layout: load the draft if it differs.
+            const grid = this.grid();
+            if (grid && grid.dataset.lmUnsaved === 'true') {
+                this.enqueue(() => this.loadPage(this.currentLayout));
             }
         },
 
+        // selectLayout shows page i and keeps it in the address, so a reload
+        // stays on it.
+        selectLayout(i) {
+            this.currentLayout = i;
+            const url = new URL(window.location.href);
+            url.searchParams.set('layout', String(i));
+            window.history.replaceState(window.history.state, '', url);
+            this.enqueue(() => this.loadPage(i));
+        },
+
+        // 1..9 switches page, unless the key is typed into a field or comes
+        // with a modifier: Ctrl/Cmd+digit belongs to the browser's tabs.
+        onHotkey(e) {
+            if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+            if (this.layoutCount <= 1 || !/^[1-9]$/.test(e.key)) return;
+            if (e.target && e.target.closest && e.target.closest(EDITABLE)) return;
+            const n = parseInt(e.key, 10);
+            if (n > this.layoutCount) return;
+            e.preventDefault();
+            this.selectLayout(n - 1);
+        },
+
         enterZen() {
-            this.setZenMode(true);
+            this.zenMode = true;
         },
 
         exitZen() {
-            this.setZenMode(false);
+            this.zenMode = false;
         },
 
         onZenEscape(e) {
@@ -188,250 +280,231 @@
             this.exitZen();
         },
 
-        setZenMode(enabled) {
-            this.zenMode = enabled;
+        // --- order ----------------------------------------------------------------
+
+        // A finished drag: persist the order the grid now shows. A drag made
+        // while a reorder is on its way is sent after it, with the order the
+        // grid shows then.
+        handleReorder() {
+            this.syncOrder();
+            if (this._reorderQueued) return;
+            this._reorderQueued = true;
+            this.enqueue(async () => {
+                this._reorderQueued = false;
+                const grid = this.grid();
+                if (!grid || this.order.length === 0) return;
+                const body = new URLSearchParams(this.order.map(id => ['order', id])).toString();
+                const response = await this.post(grid.dataset.reorderUrl, body);
+                // Refused: show the order the server kept.
+                if (!response.ok) await this.loadPage(this.currentLayout);
+            });
+        },
+    });
+
+    const layoutManagerBlock = () => ({
+        id: '',
+        cols: 1,
+        // Distinct names from the page component's: Alpine resolves this.x
+        // through the block's scope first, then the page's.
+        _el: null,
+        _endpoints: null,
+        _observer: null,
+        _resize: null,
+
+        init() {
+            const el = this.$el;
+            this._el = el;
+            this.id = el.dataset.id || '';
+            this.cols = parseInt(el.dataset.cols || '1', 10) || 1;
+            this._endpoints = {
+                remove: el.dataset.removeUrl || '',
+                resize: el.dataset.resizeUrl || '',
+                move: el.dataset.moveUrl || '',
+            };
+            // Masonry: the block spans as many small grid rows as its content
+            // and controls need, measured again whenever either changes size.
+            this._observer = new ResizeObserver(() => this.fitRows());
+            el.querySelectorAll(':scope > .lm-block-content, :scope > .lm-block-controls')
+                .forEach(part => this._observer.observe(part));
+            this.fitRows();
         },
 
-        startResize(e, handle) {
+        destroy() {
+            if (this._observer) this._observer.disconnect();
+            this._observer = null;
+            this.endResize();
+        },
+
+        atStart() {
+            return this.order.indexOf(this.id) <= 0;
+        },
+
+        atEnd() {
+            const i = this.order.indexOf(this.id);
+            return i < 0 || i === this.order.length - 1;
+        },
+
+        // --- edits ------------------------------------------------------------------
+
+        remove() {
+            const el = this._el;
+            const url = this._endpoints.remove;
+            this.enqueue(async () => {
+                // A second click on a block already removed sends nothing.
+                if (!el.isConnected) return;
+                const response = await this.post(url);
+                if (!response.ok) return;
+                el.remove();
+                this.syncOrder();
+            });
+        },
+
+        shrink() { this.resizeTo('&delta=-1'); },
+        grow() { this.resizeTo('&delta=1'); },
+        toggleFull() { this.resizeTo('&cols=0'); },
+
+        // resizeTo asks for a new span and shows the one the server stored.
+        resizeTo(query, fallback) {
+            const el = this._el;
+            const url = this._endpoints.resize + query;
+            this.enqueue(async () => {
+                if (!el.isConnected) return;
+                const response = await this.post(url);
+                const stored = parseInt(response.headers.get('X-Layout-Manager-Cols') || '', 10);
+                if (response.ok && stored > 0) {
+                    this.cols = stored;
+                } else if (fallback) {
+                    this.cols = fallback;
+                }
+            });
+        },
+
+        moveLeft() { this.moveBy(-1); },
+        moveRight() { this.moveBy(1); },
+
+        moveBy(delta) {
+            const el = this._el;
+            const url = this._endpoints.move + '&delta=' + delta;
+            this.enqueue(async () => {
+                if (!el.isConnected) return;
+                const response = await this.post(url);
+                if (!response.ok) return;
+                // Move the neighbour across the block rather than the block, so
+                // a focused control inside it keeps focus.
+                const isBlock = node => node && node.matches && node.matches('[data-lm-block]');
+                const neighbour = delta < 0 ? el.previousElementSibling : el.nextElementSibling;
+                if (isBlock(neighbour)) {
+                    if (delta < 0) el.after(neighbour);
+                    else el.before(neighbour);
+                }
+                this.syncOrder();
+            });
+        },
+
+        // --- drag to resize -----------------------------------------------------------
+
+        startResize(e) {
             if (!this.editMode || (e.button !== undefined && e.button !== 0)) return;
-
-            const block = handle.closest('[data-lm-block]');
-            const grid = handle.closest('[data-lm-grid]');
-            if (!block || !grid) return;
-
+            const el = this._el;
+            const grid = el.parentElement;
+            if (!grid) return;
             e.preventDefault();
             e.stopPropagation();
 
             const styles = window.getComputedStyle(grid);
             const columns = Math.max(1, styles.gridTemplateColumns.split(' ').length);
             const gap = parseFloat(styles.columnGap) || 0;
-            const columnWidth = (grid.clientWidth - gap * (columns - 1)) / columns;
-            const unit = columnWidth + gap;
-            const gridRect = grid.getBoundingClientRect();
-            const blockRect = block.getBoundingClientRect();
-            const startColumn = Math.max(0, Math.round((blockRect.left - gridRect.left) / unit));
-            const startCols = parseInt(block.dataset.cols || '1', 10) || 1;
-
-            this._resizeState = {
-                block,
+            const unit = (grid.clientWidth + gap) / columns;
+            const startColumn = Math.max(0, Math.round((el.getBoundingClientRect().left - grid.getBoundingClientRect().left) / unit));
+            this._resize = {
                 grid,
-                handle,
-                startX: e.clientX,
-                startCols,
-                cols: startCols,
                 columns,
-                startColumn,
                 unit,
-                url: handle.dataset.resizeUrl || '',
+                startColumn,
+                startX: e.clientX,
+                startCols: this.cols,
+                move: (event) => this.previewResize(event),
+                end: (event) => this.finishResize(event),
             };
             grid.classList.add('lm-resizing');
-            block.classList.add('lm-block-resizing');
-            this.updateResizeGuide();
-
-            this._resizeMoveHandler = (event) => this.previewResize(event);
-            this._resizeEndHandler = (event) => this.finishResize(event);
-            document.addEventListener('pointermove', this._resizeMoveHandler);
-            document.addEventListener('pointerup', this._resizeEndHandler, { once: true });
-            document.addEventListener('pointercancel', this._resizeEndHandler, { once: true });
+            el.classList.add('lm-block-resizing');
+            this.showGuide();
+            document.addEventListener('pointermove', this._resize.move);
+            document.addEventListener('pointerup', this._resize.end);
+            document.addEventListener('pointercancel', this._resize.end);
         },
 
         previewResize(e) {
-            const state = this._resizeState;
+            const state = this._resize;
             if (!state) return;
             e.preventDefault();
-
+            // Up to the full grid, as the + button allows: a block too wide for
+            // its row moves to the next one.
             const delta = Math.round((e.clientX - state.startX) / state.unit);
-            const maxCols = Math.max(1, state.columns - state.startColumn);
-            state.cols = Math.max(1, Math.min(state.startCols + delta, maxCols));
-            state.block.dataset.cols = String(state.cols);
-            this.updateResizeGuide();
-            this.scheduleMasonry();
+            this.cols = Math.max(1, Math.min(state.startCols + delta, state.columns));
+            this.showGuide();
         },
 
-        updateResizeGuide() {
-            const state = this._resizeState;
+        // The guide highlights the columns the block will cover.
+        showGuide() {
+            const state = this._resize;
             if (!state) return;
-            const end = state.startColumn + state.cols;
+            const start = state.startColumn + this.cols > state.columns ? 0 : state.startColumn;
             state.grid.querySelectorAll('.lm-grid-guide-cell').forEach((cell, index) => {
-                cell.classList.toggle('is-active', index >= state.startColumn && index < end);
+                cell.classList.toggle('is-active', index >= start && index < start + this.cols);
             });
         },
 
         finishResize(e) {
-            const state = this._resizeState;
+            const state = this._resize;
             if (!state) return;
-            const cancelled = e.type === 'pointercancel';
-            const changed = !cancelled && state.cols !== state.startCols && state.url;
-
-            if (!changed) state.block.dataset.cols = String(state.startCols);
-            this.cleanupResize();
-            if (!changed || !window.htmx) return;
-
-            window.htmx.ajax('POST', state.url + '&cols=' + state.cols, {
-                source: state.handle,
-                target: state.grid,
-                swap: 'outerHTML',
-            }).catch(err => {
-                state.block.dataset.cols = String(state.startCols);
-                console.error('[layoutmgr] resize failed', err);
-            });
+            const cols = this.cols;
+            this.endResize();
+            if (e.type === 'pointercancel' || cols === state.startCols) {
+                this.cols = state.startCols;
+                return;
+            }
+            this.resizeTo('&cols=' + cols, state.startCols);
         },
 
-        cleanupResize() {
-            if (this._resizeMoveHandler) {
-                document.removeEventListener('pointermove', this._resizeMoveHandler);
-                this._resizeMoveHandler = null;
-            }
-            if (this._resizeEndHandler) {
-                document.removeEventListener('pointerup', this._resizeEndHandler);
-                document.removeEventListener('pointercancel', this._resizeEndHandler);
-                this._resizeEndHandler = null;
-            }
-            if (this._resizeState) {
-                this._resizeState.grid.classList.remove('lm-resizing');
-                this._resizeState.block.classList.remove('lm-block-resizing');
-                this._resizeState.grid.querySelectorAll('.lm-grid-guide-cell').forEach(cell => {
-                    cell.classList.remove('is-active');
-                });
-            }
-            this._resizeState = null;
+        endResize() {
+            const state = this._resize;
+            if (!state) return;
+            document.removeEventListener('pointermove', state.move);
+            document.removeEventListener('pointerup', state.end);
+            document.removeEventListener('pointercancel', state.end);
+            state.grid.classList.remove('lm-resizing');
+            this._el.classList.remove('lm-block-resizing');
+            state.grid.querySelectorAll('.lm-grid-guide-cell').forEach(cell => cell.classList.remove('is-active'));
+            this._resize = null;
         },
 
-        setupMasonry() {
-            if (this._masonryObserver) this._masonryObserver.disconnect();
+        // --- masonry -------------------------------------------------------------------
 
-            const grid = this.$el.querySelector('[data-lm-grid]');
+        fitRows() {
+            const el = this._el;
+            const grid = el.parentElement;
             if (!grid) return;
-            const blocks = grid.querySelectorAll('[data-lm-block]');
-
-            if (typeof window.ResizeObserver === 'function') {
-                this._masonryObserver = new window.ResizeObserver(() => this.scheduleMasonry());
-                blocks.forEach(block => {
-                    const content = block.querySelector('.lm-block-content');
-                    this._masonryObserver.observe(content || block);
-                });
-            }
-            this.scheduleMasonry();
-        },
-
-        scheduleMasonry() {
-            if (this._masonryFrame) window.cancelAnimationFrame(this._masonryFrame);
-            this._masonryFrame = window.requestAnimationFrame(() => {
-                this._masonryFrame = null;
-                this.layoutMasonry();
-            });
-        },
-
-        layoutMasonry() {
-            const grid = this.$el.querySelector('[data-lm-grid]');
-            if (!grid) return;
-
             const gridStyles = window.getComputedStyle(grid);
             const rowHeight = parseFloat(gridStyles.getPropertyValue('--lm-masonry-row')) || 8;
             const rowGap = parseFloat(gridStyles.rowGap) || 16;
-
-            grid.querySelectorAll('[data-lm-block]').forEach(block => {
-                const blockStyles = window.getComputedStyle(block);
-                const content = block.querySelector('.lm-block-content');
-                const controls = block.querySelector('.lm-block-controls');
-                const controlsHeight = controls && controls.offsetParent !== null ? controls.scrollHeight : 0;
-                const contentHeight = content ? content.scrollHeight : 0;
-                const internalGap = controlsHeight > 0 && contentHeight > 0
-                    ? parseFloat(blockStyles.rowGap || blockStyles.gap) || 0
-                    : 0;
-                const verticalChrome = (parseFloat(blockStyles.paddingTop) || 0)
-                    + (parseFloat(blockStyles.paddingBottom) || 0)
-                    + (parseFloat(blockStyles.borderTopWidth) || 0)
-                    + (parseFloat(blockStyles.borderBottomWidth) || 0);
-                const naturalHeight = Math.max(
-                    parseFloat(blockStyles.minHeight) || 0,
-                    controlsHeight + contentHeight + internalGap + verticalChrome,
-                );
-                const span = Math.max(1, Math.ceil((naturalHeight + rowGap) / (rowHeight + rowGap)));
-                block.style.gridRowEnd = 'span ' + span;
-            });
-
-            grid.classList.add('lm-masonry-ready');
-        },
-
-        // Wait until Sortable finishes its current event before reading the
-        // final DOM order.
-        handleReorder() {
-            if (this.reorderPending) return;
-
-            this.reorderPending = true;
-            window.requestAnimationFrame(() => this.persistReorder());
-        },
-
-        persistReorder() {
-            const grid = this.$el.querySelector('[data-lm-grid]');
-            if (!grid) {
-                this.reorderPending = false;
-                return;
-            }
-            const order = Array.from(grid.querySelectorAll('[data-lm-block]'))
-                .map(el => el.dataset.id)
-                .filter(Boolean);
-            const url = grid.dataset.reorderUrl;
-            if (!url || order.length === 0) {
-                this.reorderPending = false;
-                return;
-            }
-
-            // Reorder is generated from the final DOM order rather than an
-            // element, so it cannot use an hx-post attribute. Keep its CSRF
-            // token synchronized with Iridium's rotating security store.
-            const security = (window.Alpine && typeof window.Alpine.store === 'function')
-                ? window.Alpine.store('security')
-                : null;
-            const headers = {
-                'Content-Type': 'application/json',
-                'HX-Request': 'true',
-            };
-            if (security && security.csrf) {
-                headers['X-CSRF-Token'] = security.csrf;
-            }
-
-            fetch(url, {
-                method: 'POST',
-                headers,
-                credentials: 'same-origin',
-                body: JSON.stringify({ order }),
-            })
-                .then(r => {
-                    const t = r.headers.get('X-CSRF-Token');
-                    if (t && security) security.csrf = t;
-                    if (!r.ok) {
-                        throw new Error('[layoutmgr] reorder rejected: ' + r.status);
-                    }
-                    return r.text();
-                })
-                .then(html => {
-                    if (!window.htmx || typeof window.htmx.swap !== 'function') {
-                        throw new Error('[layoutmgr] htmx swap API unavailable');
-                    }
-                    // Let htmx own teardown, initialization, and swap events.
-                    // htmx 4's htmx.swap takes a request context rather than
-                    // (target, content, swapStyle).
-                    window.htmx.swap({
-                        sourceElement: grid,
-                        target: grid,
-                        swap: 'outerHTML',
-                        text: html,
-                        transition: false,
-                    });
-                })
-                .catch(err => console.error('[layoutmgr] reorder failed', err))
-                .finally(() => {
-                    this.reorderPending = false;
-                });
+            const styles = window.getComputedStyle(el);
+            const content = el.querySelector(':scope > .lm-block-content');
+            const controls = el.querySelector(':scope > .lm-block-controls');
+            const controlsHeight = controls && controls.offsetParent !== null ? controls.scrollHeight : 0;
+            const contentHeight = content ? content.scrollHeight : 0;
+            const innerGap = controlsHeight > 0 && contentHeight > 0 ? parseFloat(styles.rowGap) || 0 : 0;
+            const chrome = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0)
+                + (parseFloat(styles.borderTopWidth) || 0) + (parseFloat(styles.borderBottomWidth) || 0);
+            const height = Math.max(parseFloat(styles.minHeight) || 0, controlsHeight + contentHeight + innerGap + chrome);
+            el.style.gridRowEnd = 'span ' + Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
         },
     });
 
-
     const register = () => {
         if (!window.Alpine) return false;
-        window.Alpine.data(COMPONENT_NAME, componentFactory);
+        window.Alpine.data('layout_manager', layoutManager);
+        window.Alpine.data('layout_manager_block', layoutManagerBlock);
         return true;
     };
 

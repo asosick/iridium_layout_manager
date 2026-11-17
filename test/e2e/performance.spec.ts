@@ -7,8 +7,6 @@ import { LayoutPage, layoutOf, renderCounts } from './support/layout';
  * long the request takes. `slow` takes 300ms per render, like a block with
  * a slow query. The numbers are attached to the report as a baseline.
  */
-test.use({ allowedPageProblems: [/\[hx-csp\] blocked/] });
-
 const TWELVE = ['slow', 'short', 'short', 'short', 'short', 'tall', 'grow', 'controls', 'table', 'chart', 'stats', 'short'];
 
 test('S5: one edit renders only what it changes', async ({ page }, testInfo) => {
@@ -55,9 +53,8 @@ test('S5: one edit renders only what it changes', async ({ page }, testInfo) => 
 
   console.table(results.map(({ byBlock, ...row }) => row));
   await testInfo.attach('per-edit cost', { body: JSON.stringify(results, null, 2), contentType: 'application/json' });
-  for (const r of results) expect(r.status, r.edit).toBe(200);
+  for (const r of results) expect(r.status, r.edit).toBeLessThan(300);
 
-  test.fail(true, 'S5: every edit re-renders every block on the page (9 fixture blocks here, plus the widgets)');
   for (const r of results.filter(r => !r.edit.startsWith('switch'))) {
     expect(r.fixtureRenders, `${r.edit}: fixture blocks rendered`).toBeLessThanOrEqual(1);
   }

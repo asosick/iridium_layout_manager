@@ -38,7 +38,6 @@ test.describe('zen', () => {
       return hit?.closest('button')?.textContent?.trim() ?? hit?.className ?? null;
     }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
-    test.fail(true, 'S19: the fixed Exit Zen button sits under the panel\'s top bar, which covers it');
     expect(onTop, 'element under the middle of Exit Zen').toBe('Exit Zen');
     await exit.click({ timeout: 2_000 });
     await expect(page.locator('.lm-toolbar')).toBeVisible();

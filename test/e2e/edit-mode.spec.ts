@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { LayoutPage } from './support/layout';
+import { LayoutPage, layoutOf } from './support/layout';
 
 /** Edit, Done and Reset, in the browser and in what the server stores. */
 test.describe('edit mode', () => {
@@ -33,6 +33,23 @@ test.describe('edit mode', () => {
     await lm.reload();
     expect(await lm.order()).toEqual([a]);
     expect(await lm.isEditing()).toBe(false);
+  });
+
+  test('Cancel discards the draft and returns to the committed layout in view mode', async ({ page }) => {
+    const lm = new LayoutPage(page);
+    await lm.plant(layoutOf(['short']));
+    await lm.goto();
+    const [a] = await lm.order();
+
+    await lm.edit();
+    await lm.addBlock('tall');
+    await lm.cancel();
+    expect(await lm.isEditing()).toBe(false);
+    expect(await lm.order()).toEqual([a]);
+    expect(await lm.serverOrder(), 'the draft is gone').toEqual([a]);
+
+    await lm.edit();
+    expect(await lm.order()).toEqual([a]);
   });
 
   test('without a lock button the page is always editable, also after Done', async ({ page }) => {

@@ -1,136 +1,136 @@
 package layoutmgr
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
+	"strconv"
+	"sync"
 
 	"github.com/gorilla/sessions"
 	"github.com/iridiumgo/iridium/bootstrap/auth"
-	"github.com/iridiumgo/iridium/core/logger"
+	"github.com/iridiumgo/iridium/config"
+	"github.com/iridiumgo/iridium/core/auth/user"
+	ircontext "github.com/iridiumgo/iridium/core/context"
+	"github.com/iridiumgo/iridium/core/context/ctxkeys"
 )
 
-// LoadHook fetches the LayoutState for the current request. Return a zero
-// LayoutState{} (not nil) when nothing is stored yet.
+// LoadHook fetches the committed LayoutState for the current request's user,
+// for example from a database. Return a zero LayoutState{} (not an error)
+// when nothing is stored yet.
 type LoadHook func(r *http.Request) (LayoutState, error)
 
-// SaveHook persists the LayoutState for the current request.
+// SaveHook persists the LayoutState the user commits with Done.
 type SaveHook func(r *http.Request, state LayoutState) error
 
-type stateExistsHook func(r *http.Request) (bool, error)
-
-var (
-	errNoWriter       = errors.New("layoutmgr: no ResponseWriter on the request context — call attachWriter from your handler")
-	errAuthStoreUnset = errors.New("layoutmgr: auth.Store is not configured; either configure iridium's auth Store or provide your own SaveHook/LoadHook")
-)
-
-// sessionLoad / sessionSave are the default persistence: per-user gorilla
-// session under a key derived from the page slug. No DB required — works
-// out of the box.
+// Layouts live on the server, per page and per user: the working draft that
+// edits change, and the copy Done committed. Keeping them out of cookies
+// means no size limit, and lets every request of one user take turns: two
+// edits sent at once both land, in the order they arrive.
 //
-// State is JSON-encoded so it survives the session codec without needing
-// every consuming app to gob-register the LayoutState type.
-func sessionLoad(sessionKey string) LoadHook {
-	return namedSessionLoad("layout-manager", sessionKey)
+// The store is the process's memory. With a SaveHook and LoadHook the
+// committed layout lives in the application's own storage, and only unsaved
+// drafts are lost on a restart. Without hooks, layouts last as long as the
+// process.
+
+// userLayouts is one user's layouts for one page.
+type userLayouts struct {
+	mu sync.Mutex
+	// draft holds unsaved edits; nil means the user is not editing, and the
+	// draft is the committed layout.
+	draft *LayoutState
+	// committed is the layout Done last committed, when no hooks hold it.
+	committed *LayoutState
 }
 
-func namedSessionLoad(sessionName, sessionKey string) LoadHook {
-	return func(r *http.Request) (LayoutState, error) {
-		var zero LayoutState
-		sess, err := openNamedSession(r, sessionName)
-		if err != nil {
-			return zero, err
-		}
-		raw, ok := sess.Values[sessionKey]
-		if !ok {
-			return zero, nil
-		}
-		s, ok := raw.(string)
-		if !ok {
-			logger.Warn("[layoutmgr] unexpected session layout type %T for key %s", raw, sessionKey)
-			return zero, nil
-		}
-		if s == "" {
-			return zero, nil
-		}
-		var state LayoutState
-		if err := json.Unmarshal([]byte(s), &state); err != nil {
-			// Soft-fail — start fresh rather than 500 a user out of their
-			// dashboard because of a stale codec.
-			logger.Warn("[layoutmgr] failed to decode session layout (%s): %v", sessionKey, err)
-			return zero, nil
-		}
-		return state, nil
+type layoutStore struct {
+	mu    sync.Mutex
+	users map[string]*userLayouts
+}
+
+func newLayoutStore() *layoutStore {
+	return &layoutStore{users: make(map[string]*userLayouts)}
+}
+
+func (s *layoutStore) get(key string) *userLayouts {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.users[key]
+	if !ok {
+		u = &userLayouts{}
+		s.users[key] = u
 	}
+	return u
 }
 
-func sessionStateExists(sessionKey string) stateExistsHook {
-	return namedSessionStateExists("layout-manager", sessionKey)
-}
+// anonymousKeyCookie names visitors who are not signed in, so their layouts
+// can be kept for them. Signed-in users are keyed by their user ID instead,
+// so their layouts follow them from browser to browser.
+const anonymousKeyCookie = "layout-manager-key"
 
-func namedSessionStateExists(sessionName, sessionKey string) stateExistsHook {
-	return func(r *http.Request) (bool, error) {
-		sess, err := openNamedSession(r, sessionName)
-		if err != nil {
-			return false, err
-		}
-		_, ok := sess.Values[sessionKey]
-		return ok, nil
+const anonymousKeyMaxAge = 365 * 24 * 60 * 60
+
+// ownerKey identifies whose layouts the request reads and writes.
+func ownerKey(w http.ResponseWriter, r *http.Request) string {
+	if u := requestUser(w, r); u != nil {
+		return "user:" + strconv.FormatUint(uint64(u.GetID()), 10)
 	}
-}
-
-func sessionSave(sessionKey string) SaveHook {
-	return namedSessionSave("layout-manager", sessionKey)
-}
-
-func namedSessionSave(sessionName, sessionKey string) SaveHook {
-	return func(r *http.Request, state LayoutState) error {
-		sess, err := openNamedSession(r, sessionName)
-		if err != nil {
-			return err
-		}
-		buf, err := json.Marshal(state)
-		if err != nil {
-			return err
-		}
-		sess.Values[sessionKey] = string(buf)
-		// gorilla.Save needs the ResponseWriter (to emit Set-Cookie). Our
-		// route handlers stash it on the request context via attachWriter.
-		w, ok := writerFromRequest(r)
-		if !ok {
-			return errNoWriter
-		}
-		return sess.Save(r, w)
+	if c, err := r.Cookie(anonymousKeyCookie); err == nil && validAnonymousKey(c.Value) {
+		return "anon:" + c.Value
 	}
+	key := newAnonymousKey()
+	http.SetCookie(w, sessions.NewCookie(anonymousKeyCookie, key, cookieOptions(r, anonymousKeyMaxAge)))
+	// The rest of this request (a handler can ask twice) uses the same key.
+	r.AddCookie(&http.Cookie{Name: anonymousKeyCookie, Value: key})
+	return "anon:" + key
 }
 
-func openNamedSession(r *http.Request, sessionName string) (*sessions.Session, error) {
-	if auth.Store == nil {
-		return nil, errAuthStoreUnset
+func requestUser(w http.ResponseWriter, r *http.Request) user.IUser {
+	if u, ok := r.Context().Value(ctxkeys.User).(user.IUser); ok && u != nil {
+		return u
 	}
-	return auth.Store.Get(r, sessionName)
-}
-
-// --- request-scoped response writer plumbing ---------------------------------
-//
-// The SaveHook signature is `func(*http.Request, LayoutState) error` — no
-// ResponseWriter. But gorilla session.Save needs the writer. We stash w on
-// the request context from each handler so the default session save can find
-// it without changing the public hook signature (custom DB-backed hooks
-// don't need it).
-
-type writerCtxKey struct{}
-
-func attachWriter(r *http.Request, w http.ResponseWriter) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), writerCtxKey{}, w))
-}
-
-func writerFromRequest(r *http.Request) (http.ResponseWriter, bool) {
-	v := r.Context().Value(writerCtxKey{})
-	if v == nil {
-		return nil, false
+	// Without the auth middleware in front, Iridium reads the session.
+	if auth.Store == nil || config.Config == nil {
+		return nil
 	}
-	w, ok := v.(http.ResponseWriter)
-	return w, ok
+	ctx := ircontext.NewContext(r, w)
+	if u, ok := ctx.User(); ok {
+		return u
+	}
+	return nil
+}
+
+// cookieOptions are the ones Iridium gives its own cookies: Secure only over
+// HTTPS, HttpOnly, and the configured SameSite and path.
+func cookieOptions(r *http.Request, maxAge int) *sessions.Options {
+	if config.Config == nil {
+		return &sessions.Options{Path: "/", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: r.TLS != nil}
+	}
+	return config.Config.CookieOptions(r, maxAge)
+}
+
+func newAnonymousKey() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic("layoutmgr: no randomness for a visitor key: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
+func validAnonymousKey(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil
+}
+
+// clone deep-copies a layout state, so the store never shares slices with a
+// request.
+func clone(s LayoutState) LayoutState {
+	out := LayoutState{Layouts: make([]Layout, len(s.Layouts))}
+	for i, l := range s.Layouts {
+		out.Layouts[i].Blocks = append([]Block(nil), l.Blocks...)
+	}
+	return out
 }

@@ -111,6 +111,11 @@
     outline-offset: 1px;
 }
 
+/* The container the grid's responsive columns query. */
+.lm-grid-wrap {
+    container-type: inline-size;
+}
+
 /* Grid container — column count provided inline via --lm-cols so the host
    can vary it per page. */
 .lm-grid {
@@ -124,9 +129,22 @@
     position: relative;
 }
 
+/* Masonry: each block spans the small rows its content needs. Blocks keep
+   flowing in order (no dense packing), so the order on screen is the stored
+   order and a moved block lands where it was put. */
 .lm-grid.lm-masonry-ready {
-    grid-auto-flow: dense;
     grid-auto-rows: var(--lm-masonry-row);
+}
+
+/* Narrow screens get one column, whatever the page's column count. */
+@container (max-width: 32rem) {
+    .lm-grid,
+    .lm-grid-guide {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .lm-grid > .lm-block {
+        grid-column: span 1 / span 1;
+    }
 }
 
 .lm-grid-guide {
@@ -295,7 +313,11 @@
     user-select: none;
 }
 
-/* Empty state when the user hasn't added any blocks yet. */
+/* Empty state when the page has no blocks yet. */
+.lm-grid:has(> [data-lm-block]) > .lm-empty {
+    display: none;
+}
+
 .lm-empty {
     grid-column: 1 / -1;
     border: 2px dashed var(--color-border);

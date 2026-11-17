@@ -10,6 +10,7 @@ import (
 	"github.com/iridiumgo/iridium/core/action/traits"
 	"github.com/iridiumgo/iridium/core/context/ctxPanel"
 	"github.com/iridiumgo/iridium/core/enum"
+	"github.com/iridiumgo/iridium/core/logger"
 	"github.com/iridiumgo/iridium/core/page/panel"
 	"github.com/iridiumgo/iridium/core/widget"
 	"github.com/iridiumgo/iridium/network/wrapper"
@@ -24,29 +25,23 @@ import (
 //	panel.PanelItems(layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
 //	    Blocks(...).GridColumns(3))
 //
-// Persistence defaults to the iridium session store, so layouts survive across
-// requests with zero configuration. Pass SaveHook/LoadHook to plug your own
-// database.
+// Layouts are kept on the server per user (see store.go), so they work with
+// zero configuration. Pass SaveHook/LoadHook to keep committed layouts in
+// your own database.
 type LayoutManagerPage struct {
 	*panel.CustomPanelPage
 
-	blocks          []BlockSpec
-	blockSource     func(r *http.Request) []BlockSpec
-	gridCols        int
-	layoutCount     int
-	showLockBtn     bool
-	sessionLoad     LoadHook
-	sessionSave     SaveHook
-	sessionExists   stateExistsHook
-	committedLoad   LoadHook
-	committedSave   SaveHook
-	committedExists stateExistsHook
-	saveHook        SaveHook
-	loadHook        LoadHook
-	allowReorder    bool
-	allowResize     bool
-	zenEnabled      bool
-	assetBasePath   string // computed at register-time; relative to the panel
+	blocks       []BlockSpec
+	blockSource  func(r *http.Request) []BlockSpec
+	gridCols     int
+	layoutCount  int
+	showLockBtn  bool
+	store        *layoutStore
+	saveHook     SaveHook
+	loadHook     LoadHook
+	allowReorder bool
+	allowResize  bool
+	zenEnabled   bool
 }
 
 // NewLayoutManagerPage constructs a layout-manager page rooted at the given
@@ -58,31 +53,22 @@ type LayoutManagerPage struct {
 //   - ShowLockButton = true
 //   - Reorderable = true
 //   - Resizeable = true
-//   - Persistence = per-user session
+//   - Persistence = per user, in the server's memory
 func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 	cpp := panel.NewCustomPanelPage(name, slug)
 	// Render the page name as the panel chrome's title (the same heading every
 	// other panel page shows at the top). The plugin no longer draws its own
 	// heading inside the content, so this is the single source for the title.
 	cpp.Title(name)
-	p := &LayoutManagerPage{
+	return &LayoutManagerPage{
 		CustomPanelPage: cpp,
 		gridCols:        2,
 		layoutCount:     3,
 		showLockBtn:     true,
 		allowReorder:    true,
 		allowResize:     true,
+		store:           newLayoutStore(),
 	}
-	// Default persistence: per-page session key.
-	sessionKey := "layout:" + cpp.SlugStr
-	p.sessionLoad = sessionLoad(sessionKey)
-	p.sessionSave = sessionSave(sessionKey)
-	p.sessionExists = sessionStateExists(sessionKey)
-	committedKey := sessionKey + ":committed"
-	p.committedLoad = namedSessionLoad("layout-manager-committed", committedKey)
-	p.committedSave = namedSessionSave("layout-manager-committed", committedKey)
-	p.committedExists = namedSessionStateExists("layout-manager-committed", committedKey)
-	return p
 }
 
 // --- builders ----------------------------------------------------------------
@@ -177,7 +163,7 @@ func (p *LayoutManagerPage) Resizeable(enabled bool) *LayoutManagerPage {
 
 // SaveHook plugs in custom persistence (e.g. write to your database). The
 // hook is called whenever the user clicks Done. Returning an error
-// surfaces a notification to the user.
+// surfaces a notification to the user and commits nothing.
 func (p *LayoutManagerPage) SaveHook(fn SaveHook) *LayoutManagerPage {
 	if fn != nil {
 		p.saveHook = fn
@@ -185,8 +171,10 @@ func (p *LayoutManagerPage) SaveHook(fn SaveHook) *LayoutManagerPage {
 	return p
 }
 
-// LoadHook plugs in custom retrieval (mirror of SaveHook). It seeds a user
-// session when no working draft exists yet.
+// LoadHook plugs in custom retrieval (mirror of SaveHook). With a SaveHook
+// too, it is the source of the committed layout: view mode, Reset and a new
+// draft all read it, so every browser of a user sees what was last saved.
+// Alone, it seeds users who have committed nothing on this server yet.
 func (p *LayoutManagerPage) LoadHook(fn LoadHook) *LayoutManagerPage {
 	if fn != nil {
 		p.loadHook = fn
@@ -376,17 +364,21 @@ func (p *LayoutManagerPage) SkipAuth() *LayoutManagerPage {
 // (state-aware) and let iridium-core's chrome resolver wrap it in the panel.
 // Each call gets its own snapshot so concurrent requests don't race on
 // ContentObj.
+//
+// A page with a lock button opens in view mode and shows the committed
+// layout; one without opens editable and shows the draft. The page shown is
+// the one named by ?layout=N, else the first with blocks.
 func (p *LayoutManagerPage) GetComponent(w http.ResponseWriter, r *http.Request) (templ.Component, error) {
-	// Stash w on the request context so default session-save hooks can emit
-	// Set-Cookie headers. No-op for custom hooks that don't need it.
-	r = attachWriter(r, w)
-
-	state := p.currentState(r)
+	editing := !p.showLockBtn
+	state, unsaved, err := p.shownState(w, r, editing)
+	if err != nil {
+		logger.Error("[layoutmgr] load layout: %v", err)
+	}
 
 	// Per-request snapshot — local copy, never shared. The native Iridium page
 	// owns the Alpine controller and renders the layout toolbar directly in its
 	// header action area, so every control remains inside the same lifecycle.
-	d := p.buildInitialPageData(w, r, state)
+	d := p.buildInitialPageData(w, r, state, unsaved)
 	cppCopy := p.cloneCustomPanelPage()
 	cppCopy.ContentObj = views.LayoutManagerContent(d)
 	cppCopy.AttributesObj = make(templ.Attributes, len(p.CustomPanelPage.AttributesObj)+len(views.PageAttributes(d)))
@@ -467,30 +459,89 @@ func (p *LayoutManagerPage) RegisterRoutes(mux wrapper.IMux) {
 	p.RegisterCarrier(scoped)
 }
 
-// --- helpers ----------------------------------------------------------------
+// --- layouts ------------------------------------------------------------------
 
-// currentState reads the user's session-backed working state. A custom load
-// hook seeds a new session, while subsequent edits continue from the session
-// until the user explicitly saves them.
-func (p *LayoutManagerPage) currentState(r *http.Request) LayoutState {
-	state, err := p.sessionLoad(r)
-	if err != nil {
-		return p.normalize(LayoutState{})
-	}
-	exists, err := p.sessionExists(r)
-	if err != nil || exists || p.loadHook == nil {
-		return p.normalize(state)
-	}
-
-	state, err = p.loadHook(r)
-	if err != nil {
-		return p.normalize(LayoutState{})
-	}
-	return p.normalize(state)
+// owner returns the request's user's layouts for this page.
+func (p *LayoutManagerPage) owner(w http.ResponseWriter, r *http.Request) *userLayouts {
+	return p.store.get(p.SlugStr + "|" + ownerKey(w, r))
 }
 
-// normalize clamps each block's column span to the current GridColumns setting
-// (in case the admin lowered the grid after layouts were saved).
+// committedState is the layout Done last committed (u locked). With both
+// hooks the application's storage holds it, so it is read from there.
+func (p *LayoutManagerPage) committedState(r *http.Request, u *userLayouts) (LayoutState, error) {
+	if p.loadHook != nil && (u.committed == nil || p.saveHook != nil) {
+		state, err := p.loadHook(r)
+		if err != nil {
+			return p.normalize(LayoutState{}), err
+		}
+		return p.normalize(state), nil
+	}
+	if u.committed != nil {
+		return p.normalize(clone(*u.committed)), nil
+	}
+	return p.normalize(LayoutState{}), nil
+}
+
+// draftState is the layout being edited (u locked): the user's unsaved
+// draft, else the committed layout.
+func (p *LayoutManagerPage) draftState(r *http.Request, u *userLayouts) (LayoutState, error) {
+	if u.draft != nil {
+		return p.normalize(clone(*u.draft)), nil
+	}
+	return p.committedState(r, u)
+}
+
+// shownState is what the page shows: the draft while editing, else the
+// committed layout. unsaved reports whether the draft differs from it.
+func (p *LayoutManagerPage) shownState(w http.ResponseWriter, r *http.Request, editing bool) (LayoutState, bool, error) {
+	u := p.owner(w, r)
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	unsaved := u.draft != nil
+	if editing {
+		state, err := p.draftState(r, u)
+		return state, unsaved, err
+	}
+	state, err := p.committedState(r, u)
+	return state, unsaved, err
+}
+
+// Layouts returns the request's user's layouts on this page: the draft edit
+// mode shows (their unsaved edits, else the committed layout) and the
+// committed layout view mode shows.
+func (p *LayoutManagerPage) Layouts(w http.ResponseWriter, r *http.Request) (draft, committed LayoutState, err error) {
+	u := p.owner(w, r)
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if draft, err = p.draftState(r, u); err != nil {
+		return draft, committed, err
+	}
+	committed, err = p.committedState(r, u)
+	return draft, committed, err
+}
+
+// SetLayouts replaces the request's user's layouts on this page, as an
+// import or an administrator would. A nil draft means no unsaved edits; a nil
+// committed layout leaves the committed one as it is. It does not call the
+// hooks.
+func (p *LayoutManagerPage) SetLayouts(w http.ResponseWriter, r *http.Request, draft, committed *LayoutState) {
+	u := p.owner(w, r)
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.draft = nil
+	if draft != nil {
+		d := clone(*draft)
+		u.draft = &d
+	}
+	if committed != nil {
+		c := clone(*committed)
+		u.committed = &c
+	}
+}
+
+// normalize pads the layouts to LayoutCount and clamps each block's column
+// span to the current GridColumns setting (in case the admin lowered the grid
+// after layouts were saved).
 func (p *LayoutManagerPage) normalize(state LayoutState) LayoutState {
 	state.EnsureLayouts(p.layoutCount)
 	for li := range state.Layouts {

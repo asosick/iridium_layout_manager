@@ -5,7 +5,7 @@
  *   order()        the blocks' DOM order, which is what the plugin sends to
  *                  the server after a drag;
  *   visualOrder()  the order a user reads: by top edge, then left edge;
- *   serverOrder()  the order stored in the draft session (GET /e2e/state).
+ *   serverOrder()  the order of the draft the server keeps (GET /e2e/state).
  *
  * Every action waits for the requests it starts, then for the page to settle
  * (no /lm/ request in flight, masonry laid out).
@@ -98,6 +98,7 @@ export class LayoutPage {
   editButton() { return this.page.getByRole('button', { name: 'Edit', exact: true }); }
   doneButton() { return this.page.locator('[data-lm-done]'); }
   resetButton() { return this.page.getByRole('button', { name: 'Reset', exact: true }); }
+  cancelButton() { return this.page.getByRole('button', { name: 'Cancel', exact: true }); }
   addButton() { return this.page.getByRole('button', { name: 'Add', exact: true }); }
 
   async isEditing() {
@@ -122,6 +123,14 @@ export class LayoutPage {
     await Promise.all([
       this.page.waitForResponse(r => r.url().includes('/lm/reset')),
       this.resetButton().click(),
+    ]);
+    await this.waitForIdle();
+  }
+
+  async cancel() {
+    await Promise.all([
+      this.page.waitForResponse(r => r.url().includes('/lm/reset')),
+      this.cancelButton().click(),
     ]);
     await this.waitForIdle();
   }
@@ -213,10 +222,8 @@ export class LayoutPage {
   // --- server state -----------------------------------------------------------
 
   /**
-   * The stored draft and committed layouts, read with the browser's own
-   * cookies. (Playwright's API request context would not send them: the
-   * plugin's cookies are Secure, and it does not treat http://127.0.0.1 as
-   * a secure origin the way the browser does.)
+   * The draft and committed layouts the server keeps for this browser's
+   * user, read with the browser's own cookies (which say who the user is).
    */
   async storedState(): Promise<{ draft: StoredState | null; committed: StoredState | null }> {
     await this.onOrigin();
@@ -243,10 +250,13 @@ export class LayoutPage {
     return (committed?.layouts?.[layout]?.blocks ?? []).map(b => b.id);
   }
 
-  /** Plants a draft (and optionally committed) state in this context's cookies. */
-  async plant(draft: StoredState | object, committed?: StoredState | object) {
-    const body: Record<string, unknown> = { draft };
-    if (committed !== undefined) body.committed = committed;
+  /**
+   * Plants layouts for this browser's user: plant(saved) a committed layout
+   * with no unsaved edits, plant(saved, draft) also unsaved edits on top.
+   */
+  async plant(saved: StoredState | object, draft?: StoredState | object) {
+    const body: Record<string, unknown> = { committed: saved };
+    if (draft !== undefined) body.draft = draft;
     await this.onOrigin();
     const status = await this.page.evaluate(async ({ slug, body }) => {
       const response = await fetch(`/e2e/state?page=${slug}`, {
@@ -273,11 +283,17 @@ export class LayoutPage {
     expect(start, 'drag start point is visible').not.toBeNull();
     const sx = start!.x + start!.width / 2;
     const sy = start!.y + start!.height / 2;
+    // Onto a block: a quarter of its size past its centre, in the direction of
+    // travel, which unambiguously takes its place (at the exact centre the
+    // engines' timing decides between before and after).
     const target = async () => {
       if (typeof to !== 'string') return to;
       const box = await this.block(to).boundingBox();
       expect(box, `drop target ${to} is visible`).not.toBeNull();
-      return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+      const cx = box!.x + box!.width / 2;
+      const cy = box!.y + box!.height / 2;
+      if (Math.abs(cy - sy) >= Math.abs(cx - sx)) return { x: cx, y: cy + Math.sign(cy - sy) * box!.height / 4 };
+      return { x: cx + Math.sign(cx - sx) * box!.width / 4, y: cy };
     };
     const end = await target();
     const mouse = this.page.mouse;

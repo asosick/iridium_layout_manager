@@ -23,13 +23,13 @@ test.describe('single-page navigation', () => {
     await page.evaluate(() => {
       window.addEventListener('keydown', e => { (window as any).__prevented = e.defaultPrevented; });
     });
-    await page.keyboard.press('Control+2');
+    await page.keyboard.press('2');
     await lm.settle();
     expect(lm.requests.filter(r => r.includes('/lm/select')), 'requests from a page that is gone').toEqual([]);
     expect(await page.evaluate(() => (window as any).__prevented), 'key swallowed by a page that is gone').toBe(false);
   });
 
-  test('S11: after navigating away and back three times, one Ctrl/Cmd+2 sends one request', async ({ page }) => {
+  test('S11: after navigating away and back three times, one press of 2 sends one request', async ({ page }) => {
     const lm = new LayoutPage(page);
     await lm.plant(layoutOf(['short'], ['tall'], []));
     await lm.goto();
@@ -39,7 +39,7 @@ test.describe('single-page navigation', () => {
       await lm.ready();
     }
 
-    await Promise.all([page.waitForResponse(r => r.url().includes('/lm/select')), page.keyboard.press('Control+2')]);
+    await Promise.all([page.waitForResponse(r => r.url().includes('/lm/select')), page.keyboard.press('2')]);
     await lm.settle();
     expect(lm.requests.filter(r => r.includes('/lm/select'))).toHaveLength(1);
     expect(await lm.order()).toEqual(['tall-2']);

@@ -1,8 +1,7 @@
 package layoutmgr
 
 import (
-	"context"
-	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,20 +12,23 @@ import (
 	"github.com/iridiumgo/iridium/core/context/ctxkeys"
 	"github.com/iridiumgo/iridium/core/logger"
 	"github.com/iridiumgo/iridium/network/wrapper"
+
+	"github.com/asosick/iridium_layout_manager/views"
 )
 
 // route suffixes — kept short because they live under the page slug.
 const (
-	routeAdd     = "/lm/add"
-	routeRemove  = "/lm/remove"  // ?id=...&layout=N
-	routeResize  = "/lm/resize"  // ?id=...&cols=N&layout=N
-	routeMove    = "/lm/move"    // ?id=...&delta=±1&layout=N
-	routeReorder = "/lm/reorder" // ?layout=N
-	routeSelect  = "/lm/select"  // ?layout=N — switch the displayed layout
-	routeSave    = "/lm/save"
-	routeReset   = "/lm/reset"
+	routeAdd     = "/lm/add"     // ?type=...&layout=N → the new block
+	routeRemove  = "/lm/remove"  // ?id=...&layout=N → 204
+	routeResize  = "/lm/resize"  // ?id=...&cols=N|delta=±1&layout=N → 204, X-Layout-Manager-Cols
+	routeMove    = "/lm/move"    // ?id=...&delta=±1&layout=N → 204
+	routeReorder = "/lm/reorder" // ?layout=N, form order=id… → 204
+	routeSelect  = "/lm/select"  // ?layout=N&mode=view|edit → the grid
+	routeSave    = "/lm/save"    // layout=N → 204
+	routeReset   = "/lm/reset"   // ?layout=N → the grid
 
 	nextLayoutHeader = "X-Iridium-Layout-Manager-Next-Layout"
+	colsHeader       = "X-Layout-Manager-Cols"
 )
 
 func (p *LayoutManagerPage) registerLayoutRoutes(mux wrapper.IMux) {
@@ -40,30 +42,64 @@ func (p *LayoutManagerPage) registerLayoutRoutes(mux wrapper.IMux) {
 	mux.HandleFunc(routeReset, p.handleReset)
 }
 
-// layoutIndex reads the target layout index from the request (form value first,
-// then query) and clamps it into [0, layoutCount). Missing/garbage → 0. Every
-// mutation is scoped to one layout, so this picks which one.
-func (p *LayoutManagerPage) layoutIndex(r *http.Request) int {
+var errBadLayout = errors.New("invalid layout")
+
+// layoutIndex reads the target layout index from the request (form value,
+// which includes the query). Absent means 0; anything that is not one of the
+// page's layouts is an error, so a stale or wrong request edits nothing.
+func (p *LayoutManagerPage) layoutIndex(r *http.Request) (int, error) {
 	raw := r.FormValue("layout")
 	if raw == "" {
-		raw = r.URL.Query().Get("layout")
+		return 0, nil
 	}
 	i, err := strconv.Atoi(raw)
 	if err != nil || i < 0 || i >= p.layoutCount {
-		return 0
+		return 0, errBadLayout
 	}
-	return i
+	return i, nil
 }
 
-// handleAdd appends a new block of the requested type. POST body / form:
-// `type=<block-key>`. Responds with the re-rendered grid for htmx swap.
-func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
+func allowPost(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
+}
+
+// edit runs fn on the layout the request names, under the user's lock, so the
+// user's requests apply one after another, each to the result of the last.
+// fn answers the request itself when it fails (and returns false).
+func (p *LayoutManagerPage) edit(w http.ResponseWriter, r *http.Request, fn func(l *Layout) bool) (LayoutState, int, bool) {
+	idx, err := p.layoutIndex(r)
+	if err != nil {
+		http.Error(w, "invalid layout", http.StatusBadRequest)
+		return LayoutState{}, 0, false
+	}
+	u := p.owner(w, r)
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	state, err := p.draftState(r, u)
+	if err != nil {
+		logger.Error("[layoutmgr] load layout: %v", err)
+		http.Error(w, "failed to load layout", http.StatusInternalServerError)
+		return state, idx, false
+	}
+	if !fn(state.LayoutAt(idx, p.layoutCount)) {
+		return state, idx, false
+	}
+	state = p.normalize(state)
+	draft := clone(state)
+	u.draft = &draft
+	return state, idx, true
+}
+
+// handleAdd appends a new block of the requested type and answers it, for
+// the client to append to the grid. Form or query: type=<block-key>&layout=N.
+func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
+	if !allowPost(w, r) {
 		return
 	}
-	r = attachWriter(r, w)
-
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
@@ -74,167 +110,152 @@ func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown block type", http.StatusBadRequest)
 		return
 	}
-
-	idx := p.layoutIndex(r)
-	state := p.currentState(r)
-	if !p.prepareMutation(w, r, state) {
-		return
-	}
-	layout := state.LayoutAt(idx, p.layoutCount)
-	layout.Blocks = append(layout.Blocks, Block{
-		ID:   uuid.NewString(),
-		Type: key,
-		Cols: 1,
+	block := Block{ID: uuid.NewString(), Type: key, Cols: 1}
+	state, idx, ok := p.edit(w, r, func(l *Layout) bool {
+		l.Blocks = append(l.Blocks, block)
+		return true
 	})
-	p.persistAndRender(w, r, state, idx)
+	if !ok {
+		return
+	}
+	d := p.pageData(w, r, state, idx)
+	blocks := state.LayoutAt(idx, p.layoutCount).Blocks
+	p.writeHTML(w, r, views.Block(d, p.blockData(w, r, d, spec, block, len(blocks)-1, len(blocks))))
 }
 
-// handleRemove drops a block by ID.
+// handleRemove drops a block by ID. Removing a block that is already gone (a
+// double click) succeeds.
 func (p *LayoutManagerPage) handleRemove(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allowPost(w, r) {
 		return
 	}
-	r = attachWriter(r, w)
-
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
-	idx := p.layoutIndex(r)
-	state := p.currentState(r)
-	if !p.prepareMutation(w, r, state) {
-		return
+	if _, _, ok := p.edit(w, r, func(l *Layout) bool {
+		l.Remove(id)
+		return true
+	}); ok {
+		w.WriteHeader(http.StatusNoContent)
 	}
-	// Remove(id) returning false just means the block is already gone
-	// (double-click); re-render anyway for idempotence.
-	state.LayoutAt(idx, p.layoutCount).Remove(id)
-	p.persistAndRender(w, r, state, idx)
 }
 
-// handleResize updates a block's column span. Query: ?id=...&cols=N. cols=0
-// is taken as a "toggle" between 1 and GridColumns (the filament behaviour).
+// handleResize updates a block's column span and answers the new span in a
+// header. Query: ?id=...&cols=N, or delta=±1. cols=0 toggles between 1 and
+// GridColumns (the filament behaviour).
 func (p *LayoutManagerPage) handleResize(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allowPost(w, r) {
 		return
 	}
-	r = attachWriter(r, w)
-
-	id := r.URL.Query().Get("id")
-	colsStr := r.URL.Query().Get("cols")
-	deltaStr := r.URL.Query().Get("delta")
+	q := r.URL.Query()
+	id, colsStr, deltaStr := q.Get("id"), q.Get("cols"), q.Get("delta")
 	if id == "" {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
-
-	idx := p.layoutIndex(r)
-	state := p.currentState(r)
-	if !p.prepareMutation(w, r, state) {
-		return
-	}
-	b, _ := state.LayoutAt(idx, p.layoutCount).Find(id)
-	if b == nil {
-		http.Error(w, "unknown block", http.StatusBadRequest)
-		return
-	}
-	switch {
-	case deltaStr != "":
-		delta, err := strconv.Atoi(deltaStr)
-		if err != nil {
-			http.Error(w, "bad delta", http.StatusBadRequest)
-			return
+	cols := 0
+	_, _, ok := p.edit(w, r, func(l *Layout) bool {
+		b, _ := l.Find(id)
+		if b == nil {
+			http.Error(w, "unknown block", http.StatusBadRequest)
+			return false
 		}
-		b.Cols = clampCols(b.Cols+delta, p.gridCols)
-	case colsStr != "":
-		cols, err := strconv.Atoi(colsStr)
-		if err != nil {
-			http.Error(w, "bad cols", http.StatusBadRequest)
-			return
-		}
-		if cols == 0 {
-			// Toggle full ↔ 1 (filament behaviour).
-			if b.Cols == p.gridCols {
-				b.Cols = 1
-			} else {
-				b.Cols = p.gridCols
+		switch {
+		case deltaStr != "":
+			delta, err := strconv.Atoi(deltaStr)
+			if err != nil {
+				http.Error(w, "bad delta", http.StatusBadRequest)
+				return false
 			}
-		} else {
-			b.Cols = clampCols(cols, p.gridCols)
+			b.Cols = clampCols(b.Cols+delta, p.gridCols)
+		case colsStr != "":
+			n, err := strconv.Atoi(colsStr)
+			if err != nil {
+				http.Error(w, "bad cols", http.StatusBadRequest)
+				return false
+			}
+			if n == 0 {
+				// Toggle full ↔ 1 (filament behaviour).
+				if clampCols(b.Cols, p.gridCols) == p.gridCols {
+					b.Cols = 1
+				} else {
+					b.Cols = p.gridCols
+				}
+			} else {
+				b.Cols = clampCols(n, p.gridCols)
+			}
+		default:
+			http.Error(w, "missing cols or delta", http.StatusBadRequest)
+			return false
 		}
-	default:
-		http.Error(w, "missing cols or delta", http.StatusBadRequest)
-		return
+		cols = b.Cols
+		return true
+	})
+	if ok {
+		w.Header().Set(colsHeader, strconv.Itoa(cols))
+		w.WriteHeader(http.StatusNoContent)
 	}
-	p.persistAndRender(w, r, state, idx)
 }
 
 // handleMove shifts one block left or right by one position. The endpoint is
-// intentionally separate from drag reorder so keyboard and pointer users get
-// the same deterministic operation.
+// separate from drag reorder so keyboard and pointer users get the same
+// deterministic operation.
 func (p *LayoutManagerPage) handleMove(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allowPost(w, r) {
 		return
 	}
-	r = attachWriter(r, w)
-
 	id := r.URL.Query().Get("id")
 	delta, err := strconv.Atoi(r.URL.Query().Get("delta"))
 	if id == "" || err != nil || (delta != -1 && delta != 1) {
 		http.Error(w, "invalid move", http.StatusBadRequest)
 		return
 	}
-	idx := p.layoutIndex(r)
-	state := p.currentState(r)
-	if !p.prepareMutation(w, r, state) {
-		return
+	if _, _, ok := p.edit(w, r, func(l *Layout) bool {
+		l.Move(id, delta)
+		return true
+	}); ok {
+		w.WriteHeader(http.StatusNoContent)
 	}
-	state.LayoutAt(idx, p.layoutCount).Move(id, delta)
-	p.persistAndRender(w, r, state, idx)
 }
 
-// handleReorder applies a new block order. Body is JSON `{"order":["id1","id2",...]}`
-// (sent by the Alpine sort handler).
+// handleReorder applies a new block order, sent as form values:
+// order=id1&order=id2…
 func (p *LayoutManagerPage) handleReorder(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allowPost(w, r) {
 		return
 	}
-	r = attachWriter(r, w)
-
-	idx := p.layoutIndex(r)
-	var body struct {
-		Order []string `json:"order"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	state := p.currentState(r)
-	if !p.prepareMutation(w, r, state) {
-		return
+	order := r.PostForm["order"]
+	if _, _, ok := p.edit(w, r, func(l *Layout) bool {
+		l.Reorder(order)
+		return true
+	}); ok {
+		w.WriteHeader(http.StatusNoContent)
 	}
-	logger.Debug("[layoutmgr] reorder layout %d: %v", idx, body.Order)
-	state.LayoutAt(idx, p.layoutCount).Reorder(body.Order)
-	p.persistAndRenderGridOnly(w, r, state, idx)
 }
 
-// handleSelect re-renders the grid for a different layout (page). No mutation —
-// it's a pure GET that swaps the grid to show the requested layout's blocks.
-// The client (Alpine) tracks which layout is current; this keeps the server's
-// rendered URLs (add/remove/resize target query strings) in sync with it.
+// handleSelect renders the grid of one layout (page): the draft with
+// mode=edit, else the committed layout. Nothing changes.
 func (p *LayoutManagerPage) handleSelect(w http.ResponseWriter, r *http.Request) {
-	r = attachWriter(r, w)
-	idx := p.layoutIndex(r)
-	state := p.currentState(r)
-	r = withCurrentPageQuery(r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := p.renderGrid(w, r, state, idx).Render(r.Context(), w); err != nil {
-		logger.Error("[layoutmgr] render grid (select): %v", err)
+	idx, err := p.layoutIndex(r)
+	if err != nil {
+		http.Error(w, "invalid layout", http.StatusBadRequest)
+		return
 	}
+	editing := r.FormValue("mode") == "edit" || !p.showLockBtn
+	state, unsaved, err := p.shownState(w, r, editing)
+	if err != nil {
+		logger.Error("[layoutmgr] load layout: %v", err)
+		http.Error(w, "failed to load layout", http.StatusInternalServerError)
+		return
+	}
+	r = withCurrentPageQuery(r)
+	p.writeHTML(w, r, p.renderGrid(w, r, state, idx, unsaved))
 }
 
 // withCurrentPageQuery gives widgets the page URL state that caused this HTMX
@@ -266,16 +287,26 @@ func withCurrentPageQuery(r *http.Request) *http.Request {
 	return clone
 }
 
-// handleSave commits the current draft when Done is clicked and emits an
-// Iridium notification on success.
+// handleSave commits the draft when Done is clicked: the SaveHook first, and
+// nothing is committed if it fails.
 func (p *LayoutManagerPage) handleSave(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allowPost(w, r) {
 		return
 	}
-	r = attachWriter(r, w)
-
-	state := p.currentState(r)
+	current, err := p.layoutIndex(r)
+	if err != nil {
+		http.Error(w, "invalid layout", http.StatusBadRequest)
+		return
+	}
+	u := p.owner(w, r)
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	state, err := p.draftState(r, u)
+	if err != nil {
+		logger.Error("[layoutmgr] load layout: %v", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
 	if p.saveHook != nil {
 		if err := p.saveHook(r, state); err != nil {
 			logger.Error("[layoutmgr] save hook failed: %v", err)
@@ -283,125 +314,49 @@ func (p *LayoutManagerPage) handleSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := p.committedSave(r, state); err != nil {
-		logger.Error("[layoutmgr] committed snapshot failed: %v", err)
-		http.Error(w, "save failed", http.StatusInternalServerError)
-		return
-	}
-	if err := p.sessionSave(r, state); err != nil {
-		logger.Error("[layoutmgr] save failed: %v", err)
-		http.Error(w, "save failed", http.StatusInternalServerError)
-		return
-	}
-	current := p.layoutIndex(r)
+	committed := clone(state)
+	u.committed = &committed
+	u.draft = nil
+
 	content := state.ContentFlags(p.layoutCount)
 	if !content[current] {
 		if next, ok := state.NextPopulatedLayout(current, p.layoutCount); ok {
 			w.Header().Set(nextLayoutHeader, strconv.Itoa(next))
 		}
 	}
-	// Every mutation (add/remove/resize/reorder) already persists immediately
-	// through persistAndRender, so Done only needs to commit and
-	// confirm — there's nothing new to render. Re-rendering the grid here and
-	// swapping it back in would tear down and rebuild every widget (resetting
-	// per-instance front-end state, scroll positions, etc.) for no benefit, so
-	// we send no body (the button uses hx-swap="none") and just fire the
-	// success notification via HX-Trigger.
 	w.Header().Set("HX-Trigger", `{"notify":{"type":"success","message":"Layout saved","description":""}}`)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleReset discards the working draft and restores the last state committed
-// through Done. Existing installations without a committed snapshot keep their
-// current session state until their first edit establishes the baseline.
+// handleReset discards the draft and answers the committed layout's grid.
+// With hooks it is read back from the application's storage.
 func (p *LayoutManagerPage) handleReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !allowPost(w, r) {
 		return
 	}
-	r = attachWriter(r, w)
-	idx := p.layoutIndex(r)
-	state := p.currentState(r)
-
-	exists, err := p.committedExists(r)
+	idx, err := p.layoutIndex(r)
 	if err != nil {
-		logger.Error("[layoutmgr] reset snapshot lookup failed: %v", err)
+		http.Error(w, "invalid layout", http.StatusBadRequest)
+		return
+	}
+	u := p.owner(w, r)
+	u.mu.Lock()
+	u.draft = nil
+	state, err := p.committedState(r, u)
+	u.mu.Unlock()
+	if err != nil {
+		logger.Error("[layoutmgr] reset: %v", err)
 		http.Error(w, "reset failed", http.StatusInternalServerError)
 		return
 	}
-	if exists {
-		committed, loadErr := p.committedLoad(r)
-		if loadErr != nil {
-			logger.Error("[layoutmgr] reset snapshot load failed: %v", loadErr)
-			http.Error(w, "reset failed", http.StatusInternalServerError)
-			return
-		}
-		state = p.normalize(committed)
-	}
-	if err := p.sessionSave(r, state); err != nil {
-		logger.Error("[layoutmgr] reset failed: %v", err)
-		http.Error(w, "reset failed", http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("HX-Trigger", `{"notify":{"type":"success","message":"Layout reset","description":""}}`)
+	p.writeHTML(w, r, p.renderGrid(w, r, state, idx, false))
+}
+
+func (p *LayoutManagerPage) writeHTML(w http.ResponseWriter, r *http.Request, c templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := p.renderGrid(w, r, state, idx).Render(r.Context(), w); err != nil {
-		logger.Error("[layoutmgr] render reset grid: %v", err)
-	}
-}
-
-// prepareMutation captures the current layout once as the Reset baseline.
-func (p *LayoutManagerPage) prepareMutation(w http.ResponseWriter, r *http.Request, state LayoutState) bool {
-	exists, err := p.committedExists(r)
-	if err != nil {
-		logger.Error("[layoutmgr] committed snapshot lookup failed: %v", err)
-		http.Error(w, "failed to prepare layout edit", http.StatusInternalServerError)
-		return false
-	}
-	if exists {
-		return true
-	}
-	if err := p.committedSave(r, state); err != nil {
-		logger.Error("[layoutmgr] committed snapshot save failed: %v", err)
-		http.Error(w, "failed to prepare layout edit", http.StatusInternalServerError)
-		return false
-	}
-	return true
-}
-
-// persistAndRender stores working changes in the user's session and writes the
-// updated grid for an htmx swap. Durable persistence remains an explicit Done.
-func (p *LayoutManagerPage) persistAndRender(w http.ResponseWriter, r *http.Request, state LayoutState, layoutIdx int) {
-	p.persistAndRenderComponent(w, r, state, layoutIdx, true)
-}
-
-func (p *LayoutManagerPage) persistAndRenderGridOnly(w http.ResponseWriter, r *http.Request, state LayoutState, layoutIdx int) {
-	p.persistAndRenderComponent(w, r, state, layoutIdx, false)
-}
-
-func (p *LayoutManagerPage) persistAndRenderComponent(w http.ResponseWriter, r *http.Request, state LayoutState, layoutIdx int, includeSelectors bool) {
-	// Snap cols to current grid in case anything sneaks in out of bounds.
-	for li := range state.Layouts {
-		blocks := state.Layouts[li].Blocks
-		for i := range blocks {
-			blocks[i].Cols = clampCols(blocks[i].Cols, p.gridCols)
-		}
-	}
-
-	if err := p.sessionSave(r, state); err != nil {
-		logger.Error("[layoutmgr] persist mutation failed: %v", err)
-		http.Error(w, "failed to persist layout", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	component := p.renderGrid(w, r, state, layoutIdx)
-	if !includeSelectors {
-		component = p.renderGridOnly(w, r, state, layoutIdx)
-	}
-	if err := component.Render(r.Context(), w); err != nil {
-		logger.Error("[layoutmgr] render grid: %v", err)
+	if err := c.Render(r.Context(), w); err != nil {
+		logger.Error("[layoutmgr] render: %v", err)
 	}
 }
 
@@ -422,12 +377,3 @@ func panelPathFromRequest(r *http.Request) string {
 	// Defensive: ensure no trailing slash so concatenation is clean.
 	return strings.TrimRight(s, "/")
 }
-
-// usePanelPath sets the panel path on a context for tests / standalone
-// rendering (unit tests don't spin up a full panel). Kept exported-internally
-// for future test packages.
-func usePanelPath(parent context.Context, prefix string) context.Context {
-	return context.WithValue(parent, ctxkeys.PanelPath, prefix)
-}
-
-var _ templ.Component = templ.NopComponent

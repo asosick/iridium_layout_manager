@@ -75,7 +75,6 @@ test.describe('widgets', () => {
     await lm.grow('short-2');
     await page.waitForTimeout(300);
 
-    test.fail(true, 'S5: the edit re-renders and swaps every block; the table starts over unsorted on page 1');
     await expect(clients(lm, 'table-1')).toHaveText(['Dogwood', 'Cedar', 'Birch'], { timeout: 2_000 });
   });
 

@@ -161,7 +161,57 @@ Last full run: Chromium 59 tests (34 pass, 25 expected failures), WebKit 14
 (8 pass, 6 expected failures), none unexpected. `go test ./...` passes,
 including the `knownDefect` checks for S3, S4, S10 and S17.
 
-## Suggested fix order
+## Fixes
+
+On branch `claude/layout-manager-fixes`, every suspect except S14 is fixed.
+Each `test.fail()` and `knownDefect` marker for those suspects is gone, so the
+specs above are now regression tests. Last run: Chromium 60 tests (59 pass,
+S14 the one expected failure), WebKit 14 pass, and `go test ./...` and
+`go test -race .` pass.
+
+| # | Fix |
+|---|---|
+| S1 | No dense packing: blocks flow in order (still masonry row spans), so the screen shows the stored order and a moved block lands where it was put. |
+| S2, S3 | One request queue per page in the browser; on the server each user's layouts are locked per request, so edits sent together both apply. A drop made during a pending reorder is sent after it, with the order shown then. Done waits in the queue. |
+| S4, S17 | Layouts live on the server (per page, per user), not in cookies: no size limit. Visitors who are not signed in get a key cookie with Iridium's cookie options. |
+| S5, S18 | Edits update the page in place: 204 for remove, resize, move and reorder; Add answers the one new block. No grid swap after a drag, so htmx never strips the controls. |
+| S7 | The page shown is kept in the address (`?layout=N`) and rendered on reload. |
+| S8 | View mode renders the committed layout; edit mode loads the draft. New Cancel button: discard the draft and lock. |
+| S9 | With both hooks, `LoadHook` is the committed layout: view mode, Reset and new drafts read it. Signed-in users share their layouts across browsers. |
+| S10 | A `layout` parameter that names no page answers 400. |
+| S11 | Pages switch with `1`..`9`: not while typing in a field, and Ctrl/Cmd+digit is left to the browser. |
+| S12 | The resize drag goes up to the full grid, as `+` does; the guide shows the wrapped position. |
+| S13 | A container query drops the grid to one column under 32rem. |
+| S19 | Exit Zen is teleported to `<body>`, above the panel's top bar. |
+| S20 | A refused reorder shows an error toast and reloads the stored order. |
+| S14 | Not fixed here: chart ids come from the widget slug, and the table prefixes only its root id, both in Iridium's templates. The marker stays. |
+
+Per-edit cost on the same 12-block page after the fixes:
+
+| Edit | Response (ms) | Fixture blocks rendered | Table row queries |
+|---|---:|---:|---:|
+| resize | 46 | 0 | 0 |
+| move | 39 | 0 | 0 |
+| add | 86 | 1 | 0 |
+| remove | 43 | 0 | 0 |
+| reorder | 10 | 0 | 0 |
+| switch to page 2 (1 block) | 53 | 1 | 0 |
+| switch back | 327 | 9 | 1 |
+
+The client is two Alpine components: `layout_manager` (the page: modes,
+pages, toolbar, the block order and the request queue) and
+`layout_manager_block` (one block: its span, its controls, drag-to-resize and
+its own masonry measurement).
+
+Breaking changes (fine for internal apps):
+- Layouts no longer live in session cookies, and old cookies are not migrated.
+  Without hooks, layouts last as long as the server process.
+- `LoadHook` with `SaveHook` is read on every view.
+- `/lm/reorder` takes form values (`order=id…`).
+- Edit responses are 204 or a single block, not the grid.
+- The page hotkeys are `1`..`9`.
+
+## Suggested fix order (before the fixes)
 
 S18 first: one line of cause, every CSP-mode panel affected after the first
 drag. Then S1 (honest order), S2/S3 (serialise edits, queue reorders), S5

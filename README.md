@@ -4,7 +4,8 @@ A standalone plugin for [Iridium](https://github.com/iridiumgo/iridium) that
 lets your end-users arrange their own dashboard pages: pick blocks (Iridium
 widgets or arbitrary `templ` components) from a dropdown, drop them onto the
 page, drag-to-reorder, resize their column span, and commit the result. Layouts
-persist per-user (cookie/session by default; pluggable for DB-backed storage).
+are kept on the server per user, with hooks to store committed layouts in your
+own database.
 
 Ported from the [FilamentPHP Filament Layout Manager](https://github.com/asosick/filament-layout-manager)
 plugin to Iridium's HTMX + Alpine + templ stack.
@@ -59,10 +60,16 @@ That's it. Visit the page, click **🔒 Edit**, pick a block from the dropdown,
 hit **+ Add** — your block appears on the grid. Drag the `⠿` handle or use the
 left/right buttons to reorder. Resize with the corner handle or the size
 buttons, and use `×` to remove. **Done** commits and locks the arrangement;
-**Reset** restores the last committed arrangement.
+**Reset** returns to the last committed arrangement and keeps editing;
+**Cancel** does the same and locks.
 
-Widgets are packed with a masonry-style grid, so a tall widget does not force
-unrelated shorter widgets to leave an empty row beneath them.
+Edits are a draft until Done: they survive a reload and come back when the
+user edits again, while view mode always shows the committed arrangement.
+
+Blocks flow in order, left to right and top to bottom, each spanning as many
+small rows as its content needs (masonry), so a tall widget does not force
+unrelated shorter widgets to leave an empty row beneath them, and the order on
+screen is the order stored. Under 32rem of width the grid becomes one column.
 
 ## Block kinds
 
@@ -108,52 +115,66 @@ layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     Reorderable(true).         // enable drag-to-reorder
     Resizable(true).           // enable resize controls
     SaveHook(myDBSave).        // optional — persist to DB when Done is clicked
-    LoadHook(myDBLoad)         // optional — seed a new user session from DB
+    LoadHook(myDBLoad)         // optional — read the committed layout from DB
 ```
 
 ### Multiple pages
 
 Each user gets `LayoutCount` separate pages (default 3) to arrange independently.
-Numbered buttons at the top switch between them, and `cmd/ctrl + 1..9` jump
-straight to a page. In edit mode every page number is shown so you can populate
-empty ones; in view mode only pages that actually contain blocks show their
-number (and the strip hides entirely when only one page is in use). All pages
-persist together in a single `LayoutState`.
+Numbered buttons at the top switch between them, and the keys `1`..`9` jump
+straight to a page (not while typing in a field, and not with Ctrl/Cmd, which
+the browser uses to switch tabs). The page shown is kept in the address
+(`?layout=N`), so a reload stays on it. In edit mode every page number is shown
+so you can populate empty ones; in view mode only pages that actually contain
+blocks show their number (and the strip hides entirely when only one page is in
+use). All pages persist together in a single `LayoutState`.
 
 ### Persistence
 
-By default the plugin stores each user's layout in Iridium's gorilla session
-(under a key namespaced by the page slug, separate from the auth cookie so
-clearing one doesn't nuke the other). Zero config required.
+The plugin keeps each user's layouts in the server's memory, per page: the
+working draft that edits change, and the arrangement Done committed. Signed-in
+users are keyed by their user ID, so their layouts follow them from browser to
+browser; visitors who are not signed in get a key cookie (with Iridium's cookie
+options). There is no size limit, and one user's edits apply one after another,
+so edits sent at once all land.
 
-To swap in your own storage, provide both hooks:
+Memory does not survive a restart, and is not shared between instances. To keep
+committed layouts, provide both hooks:
 
 ```go
 type LoadHook func(r *http.Request) (LayoutState, error)
 type SaveHook func(r *http.Request, state LayoutState) error
 ```
 
-`LayoutState` is JSON-serialisable; just persist it as a blob keyed by user.
+`LayoutState` is JSON-serialisable; persist it as a blob keyed by user. With both
+hooks, your storage is the committed layout: view mode, Reset and a new draft
+read it through `LoadHook`, and Done writes it through `SaveHook` (nothing is
+committed if the hook fails). Only unsaved drafts stay in memory, so with
+several instances use sticky sessions, or accept that an unsaved draft is lost
+when a user moves to another instance.
 
-> **Note:** Working changes (add / remove / resize / reorder) are saved as a
-> session draft so they survive page reloads. **Done** updates the committed
-> session snapshot and calls `SaveHook`; **Reset** replaces the draft with that
-> snapshot without calling the durable hook.
+`Layouts` and `SetLayouts` read and replace a user's layouts from your own
+handlers (an import, an administrator's reset).
 
-## How drag-to-reorder works
+## How editing works
 
-The plugin uses the Alpine Sort plugin that Iridium's core JS bundle already
-ships with — no extra JS dependency. After a drop:
+The page is a `layout_manager` Alpine component and each block a
+`layout_manager_block` component inside it (`static/layout_manager.js`).
+Every request goes through one queue on the page, so each edit reaches the
+server after the one before it has landed.
 
-1. Alpine reorders the `<div data-lm-block>` elements in the DOM.
-2. The layout manager catches SortableJS's completed `sort` event and reads
-   the new order from the grid's `data-id` attributes.
-3. It POSTs `{"order": [...]}` to the page's `/lm/reorder` endpoint.
-4. The server reorders the saved state and returns the freshly-rendered
-   grid; htmx swaps it back in.
+Edits change the page in place: remove, resize, move and reorder answer 204
+(resize with the stored span in `X-Layout-Manager-Cols`), and Add answers the
+one new block. The other blocks are never re-rendered, so widgets keep their
+state (a table's sort and page, a chart) and focus stays where it was. Only
+switching page, entering edit mode with unsaved changes, and Reset load a
+whole grid.
 
-The server's order is the source of truth, so the morph-swap also corrects
-any DOM drift if a concurrent request lands.
+Drag-to-reorder uses the Alpine Sort plugin that Iridium's core JS bundle
+already ships with. After a drop the page posts the order the grid shows
+(`order=id1&order=id2…`) to `/lm/reorder`; a drop made while one is on its way
+is sent after it. If the server refuses a reorder, the page shows an error and
+reloads the stored order.
 
 ## Development
 
@@ -175,9 +196,9 @@ npm install && npx playwright install chromium firefox webkit
 npx playwright test
 ```
 
-Known defects are kept as expected failures (`test.fail()` in the specs,
-`knownDefect` in Go) with their number in the title. A fix makes its marker
-fail, so remove the marker with the fix. `TESTING_REPORT.md` lists them.
+Known defects are kept as expected failures (`test.fail()`) with their number
+in the title. A fix makes its marker fail, so remove the marker with the fix.
+`TESTING_REPORT.md` lists them.
 
 ## License
 MIT

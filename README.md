@@ -155,5 +155,29 @@ ships with — no extra JS dependency. After a drop:
 The server's order is the source of truth, so the morph-swap also corrects
 any DOM drift if a concurrent request lands.
 
+## Development
+
+`go run ./cmd/demo` serves a showcase panel at
+http://127.0.0.1:8088/admin/dashboard (`DEMO_PORT` picks another port).
+
+`go test ./...` runs the integration tests: real Iridium panel routes over
+HTTPS, with CSRF and encrypted session cookies, through the test app in
+`internal/e2eapp`.
+
+The browser specs in `test/e2e` run against the same app in Iridium's CSP
+mode:
+
+```bash
+npm install && npx playwright install chromium firefox webkit
+```
+
+```bash
+npx playwright test
+```
+
+Known defects are kept as expected failures (`test.fail()` in the specs,
+`knownDefect` in Go) with their number in the title. A fix makes its marker
+fail, so remove the marker with the fix. `TESTING_REPORT.md` lists them.
+
 ## License
 MIT

@@ -262,32 +262,56 @@ export class LayoutPage {
   // --- pointer interactions ---------------------------------------------------
 
   /**
-   * Drags block `id` by its handle and releases it over `to` (a point, or the
-   * centre of another block), moving the mouse in steps as a person would.
-   * Returns the release point.
+   * Drags block `id` by its handle (or `from`) and releases it over `to` (a
+   * point, or the centre of another block), moving like a person: small
+   * steps, then a pause over the target so the sortable engine finishes its
+   * animation and settles on the final position. Returns the release point.
    */
   async drag(id: string, to: { x: number; y: number } | string, options: { from?: Locator; steps?: number } = {}) {
     const grip = options.from ?? this.block(id).locator('.lm-block-handle');
     const start = await grip.boundingBox();
     expect(start, 'drag start point is visible').not.toBeNull();
-    let target: { x: number; y: number };
-    if (typeof to === 'string') {
-      const box = await this.block(to).boundingBox();
-      expect(box, `drop target ${to} is visible`).not.toBeNull();
-      target = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
-    } else {
-      target = to;
-    }
     const sx = start!.x + start!.width / 2;
     const sy = start!.y + start!.height / 2;
-    await this.page.mouse.move(sx, sy);
-    await this.page.mouse.down();
-    await this.page.mouse.move(sx + 6, sy + 6, { steps: 3 });
-    await this.page.mouse.move(target.x, target.y, { steps: options.steps ?? 15 });
-    // Hover a moment so the sortable engine settles on the final position.
-    await this.page.mouse.move(target.x + 1, target.y + 1, { steps: 2 });
-    await this.page.mouse.up();
-    return target;
+    const target = async () => {
+      if (typeof to !== 'string') return to;
+      const box = await this.block(to).boundingBox();
+      expect(box, `drop target ${to} is visible`).not.toBeNull();
+      return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+    };
+    const end = await target();
+    const mouse = this.page.mouse;
+    await mouse.move(sx, sy);
+    await mouse.down();
+    await mouse.move(sx + 4, sy + 4, { steps: 2 });
+    await this.page.waitForTimeout(50);
+    const steps = options.steps ?? 20;
+    for (let i = 1; i <= steps; i++) {
+      await mouse.move(sx + ((end.x - sx) * i) / steps, sy + ((end.y - sy) * i) / steps);
+      await this.page.waitForTimeout(15);
+    }
+    // Hold over the target, nudging once each sort animation has finished
+    // (SortableJS ignores a target while it animates) so the engine settles
+    // on the final position.
+    for (let i = 0; i < 4; i++) {
+      await this.sortIdle();
+      await mouse.move(end.x + (i % 2 ? -2 : 2), end.y + (i % 2 ? -2 : 2));
+      await this.page.waitForTimeout(40);
+    }
+    await this.sortIdle();
+    await mouse.move(end.x, end.y);
+    await this.page.waitForTimeout(40);
+    await mouse.up();
+    return end;
+  }
+
+  /** Waits until no sortable item is mid-animation. */
+  private async sortIdle() {
+    await this.page.waitForFunction(
+      () => ![...document.querySelectorAll('[x-sort] > *')].some(el => (el as any).animated),
+      undefined,
+      { timeout: 5_000 },
+    );
   }
 
   /** Drags block `id` onto another block and waits for the reorder to land. */

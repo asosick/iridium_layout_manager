@@ -13,7 +13,7 @@ import { defineConfig, devices } from '@playwright/test';
  * To test a server that is already running instead:
  *   E2E_SERVER_URL=http://127.0.0.1:18788 npx playwright test --workers=1
  */
-export default defineConfig({
+export default defineConfig<{}, { e2eTLS: boolean }>({
   testDir: './test/e2e',
   testMatch: '**/*.spec.ts',
   timeout: 30_000,
@@ -35,16 +35,17 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     // Dragging goes through each engine's native drag and drop, so the drag
-    // specs also run in Firefox and WebKit.
+    // specs also run in Firefox and WebKit, over HTTPS: WebKit refuses the
+    // plugin's Secure cookies on plain HTTP, even on loopback (S17).
     {
       name: 'firefox',
       testMatch: ['**/reorder-drag.spec.ts', '**/resize.spec.ts'],
-      use: { ...devices['Desktop Firefox'] },
+      use: { ...devices['Desktop Firefox'], e2eTLS: true, ignoreHTTPSErrors: true },
     },
     {
       name: 'webkit',
       testMatch: ['**/reorder-drag.spec.ts', '**/resize.spec.ts'],
-      use: { ...devices['Desktop Safari'] },
+      use: { ...devices['Desktop Safari'], e2eTLS: true, ignoreHTTPSErrors: true },
     },
   ],
 });

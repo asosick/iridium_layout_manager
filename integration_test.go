@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -373,6 +374,22 @@ func TestLoadHookSeedsAndAFailingSaveHookCommitsNothing(t *testing.T) {
 	}
 }
 
+// optionValues lists the block types the Add dropdown offers.
+func optionValues(html string) []string {
+	start := strings.Index(html, "data-lm-type-select")
+	if start < 0 {
+		return nil
+	}
+	end := strings.Index(html[start:], "</select>")
+	var out []string
+	for _, m := range optionPattern.FindAllStringSubmatch(html[start:start+end], -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+var optionPattern = regexp.MustCompile(`<option value="([^"]*)"`)
+
 func setSourceKeys(t *testing.T, keys ...string) {
 	t.Helper()
 	srv, _ := servers(t)
@@ -390,6 +407,10 @@ func TestABlockSourceKeyThatDisappearsRendersMissingAndCanBeRemoved(t *testing.T
 	reset(t)
 	const source = e2eapp.PageSource
 	c := newClient(t)
+	// Blocks first, then the source's, in the source's order.
+	if got := optionValues(c.page(source).body); !slices.Equal(got, []string{"note", "cam-1", "cam-2"}) {
+		t.Fatalf("offered %v", got)
+	}
 	cam := c.addBlock(source, 0, "cam-2")
 	if body := c.page(source).body; !strings.Contains(body, `data-e2e-kind="cam-2"`) {
 		t.Fatal("the source block did not render")

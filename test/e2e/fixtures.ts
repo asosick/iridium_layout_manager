@@ -10,10 +10,14 @@
  * - Every test fails when a page in its context throws, reports a
  *   Content-Security-Policy violation or logs a console error, even if its
  *   own assertions passed. A test that causes one on purpose lists it with
- *   `test.use({ allowedPageProblems: [/pattern/] })`.
+ *   `test.use({ allowedPageProblems: [/pattern/] })`: one pattern, with |
+ *   for alternatives, since Playwright reads a two-element array as
+ *   [value, fixture options].
  */
 import { test as base, expect } from '@playwright/test';
 import { spawn, type ChildProcess } from 'child_process';
+import * as http from 'http';
+import * as https from 'https';
 import * as net from 'net';
 import { repoRoot, serverBinary } from './global-setup';
 
@@ -26,6 +30,8 @@ type Fixtures = {
 };
 
 type WorkerFixtures = {
+  /** Serve HTTPS (self-signed). WebKit keeps the plugin's Secure cookies only over HTTPS. */
+  e2eTLS: boolean;
   e2eServerURL: string;
 };
 
@@ -41,23 +47,33 @@ function freePort(): Promise<number> {
   });
 }
 
+/** GET url's health check; a self-signed certificate is accepted. */
+function healthy(url: string): Promise<boolean> {
+  return new Promise(resolve => {
+    const get = url.startsWith('https:') ? https.get : http.get;
+    const request = get(`${url}/e2e/health`, { rejectUnauthorized: false }, response => {
+      response.resume();
+      resolve(response.statusCode === 204);
+    });
+    request.on('error', () => resolve(false));
+  });
+}
+
 async function waitUntilServing(url: string, server: ChildProcess, output: () => string) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     if (server.exitCode !== null) throw new Error(`The E2E server exited with ${server.exitCode}:\n${output()}`);
-    try {
-      if ((await fetch(`${url}/e2e/health`)).ok) return;
-    } catch {
-      // Not listening yet.
-    }
+    if (await healthy(url)) return;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error(`The E2E server did not answer at ${url} within 30 seconds:\n${output()}`);
 }
 
 export const test = base.extend<Fixtures, WorkerFixtures>({
+  e2eTLS: [false, { scope: 'worker', option: true }],
+
   e2eServerURL: [
-    async ({}, use) => {
+    async ({ e2eTLS }, use) => {
       if (process.env.E2E_SERVER_URL) {
         await use(process.env.E2E_SERVER_URL);
         return;
@@ -66,7 +82,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
       let output = '';
       const server = spawn(serverBinary, [], {
         cwd: repoRoot,
-        env: { ...process.env, E2E_PORT: String(port) },
+        env: { ...process.env, E2E_PORT: String(port), ...(e2eTLS ? { E2E_TLS: '1' } : {}) },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       const collect = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-10_000); };
@@ -76,7 +92,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
         process.stderr.write(chunk);
       });
       // The port was found free on IPv4 only, so name that address.
-      const url = `http://127.0.0.1:${port}`;
+      const url = `${e2eTLS ? 'https' : 'http'}://127.0.0.1:${port}`;
       try {
         await waitUntilServing(url, server, () => output);
         await use(url);

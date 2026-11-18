@@ -126,7 +126,6 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 			layoutmgr.WidgetBlock("orders", "Recent orders", ordersWidget),
 		).
 		GridColumns(3).
-		LayoutCount(2).
 		ShowLockButton(true).
 		Reorderable(true).
 		Resizable(true).

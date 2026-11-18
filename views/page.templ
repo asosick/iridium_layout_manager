@@ -1,7 +1,6 @@
 package views
 
 import (
-    "fmt"
     "net/http"
     "strconv"
 
@@ -19,10 +18,15 @@ type PageData struct {
     AllowResize    bool
     ZenEnabled     bool
     // Multi-layout (multi-page) support.
-    LayoutCount   int    // total customizable pages (>=1)
-    CurrentLayout int    // index of the layout currently rendered
-    LayoutContent []bool // per-index: does layout i hold any blocks?
-    UsedLayouts   int    // count of non-empty layouts
+    LayoutCount   int      // pages in the layout state shown (>=1)
+    CurrentLayout int      // index of the layout currently rendered
+    LayoutContent []bool   // per-index: does layout i hold any blocks?
+    PageNames     []string // per-index: the page's name, "" shows its number
+    UsedLayouts   int      // count of non-empty layouts
+    // AddablePages: the user adds and removes pages (no fixed LayoutCount).
+    AddablePages bool
+    // RenamablePages: the user can name pages.
+    RenamablePages bool
     // Unsaved reports a draft that differs from the committed layout, which
     // view mode shows: entering edit mode then loads the draft.
     Unsaved bool
@@ -49,7 +53,14 @@ type PageURLs struct {
     Select  string // append ?layout=N — switch displayed layout
     Save    string
     Reset   string
+    // Pages: add one, remove ?layout=N, rename ?layout=N (form name=…).
+    AddPage    string
+    RemovePage string
+    RenamePage string
 }
+
+// PageNameLength is the longest page name the server keeps, in characters.
+const PageNameLength = 40
 
 // BlockOption is one entry in the "Add" dropdown.
 type BlockOption struct {
@@ -108,6 +119,11 @@ func PageAttributes(d *PageData) templ.Attributes {
         "data-lm-add-url":         d.URLs.Add,
         "data-lm-save-url":        d.URLs.Save,
         "data-lm-reset-url":       d.URLs.Reset,
+        "data-lm-add-page-url":    d.URLs.AddPage,
+        "data-lm-remove-page-url": d.URLs.RemovePage,
+        "data-lm-rename-page-url": d.URLs.RenamePage,
+        "data-lm-addable-pages":   strconv.FormatBool(d.AddablePages),
+        "data-lm-renamable-pages": strconv.FormatBool(d.RenamablePages),
         "data-lm-layout-count":    strconv.Itoa(d.LayoutCount),
         "data-lm-current-layout":  strconv.Itoa(d.CurrentLayout),
         "data-lm-lock-after-done": strconv.FormatBool(d.ShowLockButton),
@@ -178,41 +194,74 @@ templ Toolbar(d *PageData) {
     </div>
 }
 
-// Selectors renders the numbered page (layout) selector buttons. Behaviour
-// mirrors the Filament original:
+// Selectors renders the page (layout) selector: one button per page, showing
+// its name, or its number when it has none. Behaviour mirrors the Filament
+// original:
 //
 //   - The whole strip is hidden unless we're editing OR more than one layout
 //     holds content.
-//   - In edit mode every numbered button shows so the user can populate empty
+//   - In edit mode every page's button shows so the user can populate empty
 //     pages; in view mode only the buttons for pages that actually have content
 //     appear.
 //   - The active page is highlighted (ir-btn-primary), the rest are ir-btn-outline.
 //   - Clicking (or pressing 1..9) calls selectLayout(i), which swaps the grid
 //     and updates the highlight.
 //
-// Which pages hold content comes from the grid shown (data-lm-populated), so
-// the strip stays right as blocks are added and removed.
+// The pages, their names and which hold content come from the grid shown
+// (data-lm-names, data-lm-populated), so the strip follows pages and blocks
+// as they are added, removed and renamed. In edit mode the strip ends with
+// the page actions: rename the page shown (a double-click on a page does the
+// same), and, when the user decides how many pages there are, remove it or
+// add one.
 templ Selectors(d *PageData) {
-    if d.LayoutCount > 1 {
+    if d.AddablePages || d.LayoutCount > 1 {
         <div id="lm-selectors" class="lm-selectors" x-show="selectorsShown()" x-cloak>
-            for i := 0; i < d.LayoutCount; i++ {
-                <button
-                    type="button"
-                    x-show={ fmt.Sprintf("pageShown(%d)", i) }
-                    :class={ layoutBtnClass(i) }
-                    class="lm-layout-btn"
-                    data-lm-layout={ strconv.Itoa(i) }
-                    @click={ fmt.Sprintf("selectLayout(%d)", i) }
-                >
-                    { strconv.Itoa(i + 1) }
+            <template x-for="(name, i) in pages" :key="i">
+                <span class="lm-page-tab" x-show="pageShown(i)">
+                    <button
+                        type="button"
+                        class="lm-layout-btn"
+                        :class="pageClass(i)"
+                        :data-lm-layout="i"
+                        x-show="!isRenaming(i)"
+                        @click="selectLayout(i)"
+                        if d.RenamablePages {
+                            @dblclick="startRename(i)"
+                        }
+                    >
+                        <span class="lm-layout-label" x-text="pageLabel(i)"></span>
+                    </button>
+                    if d.RenamablePages {
+                        // Shown by a class, not x-show: x-show shows an
+                        // element a frame later, too late to focus it.
+                        <input
+                            type="text"
+                            class="lm-page-name"
+                            maxlength={ strconv.Itoa(PageNameLength) }
+                            aria-label="Page name"
+                            :class="renameFieldClass(i)"
+                            x-model="renameValue"
+                            :placeholder="pageNumber(i)"
+                            @keydown.enter.prevent="commitRename"
+                            @keydown.escape.prevent="cancelRename"
+                            @blur="commitRename"
+                        />
+                    }
+                </span>
+            </template>
+            if d.RenamablePages {
+                <button type="button" class="ir-btn-outline lm-page-action" x-show="editMode" aria-label="Rename page" title="Rename page" @click="startRename(currentLayout)">
+                    @icons.Pencil.Component()
+                </button>
+            }
+            if d.AddablePages {
+                <button type="button" class="ir-btn-outline lm-page-action" x-show="canRemovePage()" aria-label="Remove page" title="Remove page" @click="removePage">
+                    @icons.Trash.Component()
+                </button>
+                <button type="button" class="ir-btn-outline lm-page-action" x-show="editMode" aria-label="Add page" title="Add page" @click="addPage">
+                    @icons.Plus.Component()
                 </button>
             }
         </div>
     }
-}
-
-// layoutBtnClass returns the :class expression toggling the active page's
-// highlight against Alpine's currentLayout state.
-func layoutBtnClass(i int) string {
-    return fmt.Sprintf("currentLayout === %d ? 'ir-btn-primary' : 'ir-btn-outline'", i)
 }

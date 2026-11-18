@@ -193,3 +193,33 @@ func TestS21_ShowingALayoutLeavesTheStoredSpansAlone(t *testing.T) {
 		t.Fatalf("showing the layout changed the stored span to %d", cols)
 	}
 }
+
+func TestPageNamesAreTidied(t *testing.T) {
+	for typed, want := range map[string]string{
+		"  Cameras\t":                   "Cameras",
+		"North\nWing  2":                "North Wing 2",
+		"bell\x07":                      "bell",
+		"   ":                           "",
+		strings.Repeat("x", 45):         strings.Repeat("x", 40),
+		strings.Repeat("é", 39) + " ab": strings.Repeat("é", 39),
+	} {
+		if got := pageName(typed); got != want {
+			t.Errorf("pageName(%q) = %q, want %q", typed, got, want)
+		}
+	}
+}
+
+func TestPagesThatCannotBeRenamedRefuseANewName(t *testing.T) {
+	p := NewLayoutManagerPage("Dashboard", "dashboard").RenamablePages(false)
+	r := httptest.NewRequest(http.MethodPost, "/lm/pages/rename?layout=0", strings.NewReader("name=Overview"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	p.handleRenamePage(w, signedIn(r))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("rename answered %d, want 400", w.Code)
+	}
+	draft, _, _ := p.Layouts(httptest.NewRecorder(), signedIn(httptest.NewRequest(http.MethodGet, "/", nil)))
+	if draft.Layouts[0].Name != "" {
+		t.Fatalf("the page is named %q", draft.Layouts[0].Name)
+	}
+}

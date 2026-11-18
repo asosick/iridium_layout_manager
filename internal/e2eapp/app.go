@@ -56,6 +56,8 @@ const (
 	PageZen       = "zen"       // Zen mode enabled
 	PageHooks     = "hooks"     // SaveHook/LoadHook on an in-memory "database"
 	PageSource    = "source"    // BlockSource whose keys a test can change
+	PagePages     = "pages"     // the defaults: users add, remove and name pages
+	PageCompact   = "compact"   // Iridium's compact vertical padding
 	PageElsewhere = "elsewhere" // a plain page to navigate away to
 )
 
@@ -63,6 +65,7 @@ const (
 var LayoutPages = []string{
 	PageDefault, PageSingle, PageNarrow, PageWide, PageNoLock,
 	PageNoReorder, PageNoResize, PageZen, PageHooks, PageSource,
+	PagePages, PageCompact,
 }
 
 //go:embed static
@@ -126,21 +129,27 @@ func (a *App) panel() *panel.Panel {
 	both := func() []layoutmgr.BlockSpec { return append(a.fixtureBlocks(), a.widgetBlocks()...) }
 	simple := func() []layoutmgr.BlockSpec { return a.fixtureBlocks() }
 
+	// Three pages each, as before pages could be added, except where a page
+	// tests the number of pages itself.
 	pages := []*layoutmgr.LayoutManagerPage{
-		layoutmgr.NewLayoutManagerPage("Default", PageDefault).Blocks(both()...).GridColumns(3),
+		layoutmgr.NewLayoutManagerPage("Default", PageDefault).Blocks(both()...).GridColumns(3).LayoutCount(3),
 		layoutmgr.NewLayoutManagerPage("Single", PageSingle).Blocks(simple()...).GridColumns(3).LayoutCount(1),
-		layoutmgr.NewLayoutManagerPage("Narrow", PageNarrow).Blocks(simple()...).GridColumns(1),
-		layoutmgr.NewLayoutManagerPage("Wide", PageWide).Blocks(simple()...).GridColumns(6),
-		layoutmgr.NewLayoutManagerPage("No lock", PageNoLock).Blocks(simple()...).GridColumns(3).ShowLockButton(false),
-		layoutmgr.NewLayoutManagerPage("No reorder", PageNoReorder).Blocks(simple()...).GridColumns(3).Reorderable(false),
-		layoutmgr.NewLayoutManagerPage("No resize", PageNoResize).Blocks(simple()...).GridColumns(3).Resizable(false),
-		layoutmgr.NewLayoutManagerPage("Zen", PageZen).Blocks(simple()...).GridColumns(3).Zen(),
-		layoutmgr.NewLayoutManagerPage("Hooks", PageHooks).Blocks(simple()...).GridColumns(3).
+		layoutmgr.NewLayoutManagerPage("Narrow", PageNarrow).Blocks(simple()...).GridColumns(1).LayoutCount(3),
+		layoutmgr.NewLayoutManagerPage("Wide", PageWide).Blocks(simple()...).GridColumns(6).LayoutCount(3),
+		layoutmgr.NewLayoutManagerPage("No lock", PageNoLock).Blocks(simple()...).GridColumns(3).LayoutCount(3).ShowLockButton(false),
+		layoutmgr.NewLayoutManagerPage("No reorder", PageNoReorder).Blocks(simple()...).GridColumns(3).LayoutCount(3).Reorderable(false),
+		layoutmgr.NewLayoutManagerPage("No resize", PageNoResize).Blocks(simple()...).GridColumns(3).LayoutCount(3).Resizable(false),
+		layoutmgr.NewLayoutManagerPage("Zen", PageZen).Blocks(simple()...).GridColumns(3).LayoutCount(3).Zen(),
+		layoutmgr.NewLayoutManagerPage("Hooks", PageHooks).Blocks(simple()...).GridColumns(3).LayoutCount(3).
 			SaveHook(a.hooks.save).LoadHook(a.hooks.load),
 		layoutmgr.NewLayoutManagerPage("Source", PageSource).
 			Blocks(a.fixtureBlock("note", "Note", 0, "")).
 			GridColumns(3).
+			LayoutCount(3).
 			BlockSource(a.sourceBlocks),
+		layoutmgr.NewLayoutManagerPage("Pages", PagePages).Blocks(simple()...).GridColumns(3),
+		layoutmgr.NewLayoutManagerPage("Compact", PageCompact).Blocks(simple()...).GridColumns(3).LayoutCount(3).
+			CompactVerticalPadding(),
 	}
 	items := make([]IPanel.IPanelItem, 0, len(pages)+1)
 	for _, p := range pages {

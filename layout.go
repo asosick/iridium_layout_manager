@@ -31,9 +31,11 @@ import (
 type LayoutManagerPage struct {
 	*panel.CustomPanelPage
 
-	blocks       []BlockSpec
-	blockSource  func(r *http.Request) []BlockSpec
-	gridCols     int
+	blocks      []BlockSpec
+	blockSource func(r *http.Request) []BlockSpec
+	gridCols    int
+	// layoutCount fixes the number of pages; 0 leaves it to the user, who
+	// adds and removes pages.
 	layoutCount  int
 	showLockBtn  bool
 	store        *layoutStore
@@ -41,6 +43,7 @@ type LayoutManagerPage struct {
 	loadHook     LoadHook
 	allowReorder bool
 	allowResize  bool
+	allowRename  bool
 	zenEnabled   bool
 }
 
@@ -50,6 +53,8 @@ type LayoutManagerPage struct {
 //
 // Defaults:
 //   - GridColumns = 2
+//   - Pages: one to start with, and the user adds more (see LayoutCount)
+//   - RenamablePages = true
 //   - ShowLockButton = true
 //   - Reorderable = true
 //   - Resizeable = true
@@ -63,10 +68,10 @@ func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 	return &LayoutManagerPage{
 		CustomPanelPage: cpp,
 		gridCols:        2,
-		layoutCount:     3,
 		showLockBtn:     true,
 		allowReorder:    true,
 		allowResize:     true,
+		allowRename:     true,
 		store:           newLayoutStore(),
 	}
 }
@@ -109,15 +114,39 @@ func (p *LayoutManagerPage) GridColumns(n int) *LayoutManagerPage {
 	return p
 }
 
-// LayoutCount sets how many separate pages (layouts) the user can customize and
-// flip between with the numbered selector buttons / cmd+N hotkeys (default 3).
-// Values < 1 are clamped to 1 (single-page behaviour).
+// LayoutCount fixes how many separate pages (layouts) every user has to
+// arrange and flip between with the page buttons / 1..9 hotkeys. Without it,
+// the number is the user's: they start with one page and add more with the
+// + button, or remove them, in edit mode. Values < 1 are clamped to 1
+// (single-page behaviour).
 func (p *LayoutManagerPage) LayoutCount(n int) *LayoutManagerPage {
 	if n < 1 {
 		n = 1
 	}
 	p.layoutCount = n
 	return p
+}
+
+// RenamablePages lets the user name the pages in edit mode (default true):
+// the rename button or a double-click on a page's button. Unnamed pages show
+// their number.
+func (p *LayoutManagerPage) RenamablePages(enabled bool) *LayoutManagerPage {
+	p.allowRename = enabled
+	return p
+}
+
+// fixedPages reports whether LayoutCount fixed the number of pages.
+func (p *LayoutManagerPage) fixedPages() bool {
+	return p.layoutCount > 0
+}
+
+// pageCount is how many pages a (normalized) state has: LayoutCount, or the
+// user's own number of pages.
+func (p *LayoutManagerPage) pageCount(state LayoutState) int {
+	if p.fixedPages() {
+		return p.layoutCount
+	}
+	return max(1, len(state.Layouts))
 }
 
 // Zen adds a header action that hides the page header so the layout widgets
@@ -294,6 +323,34 @@ func (p *LayoutManagerPage) ContentSize(value enum.PageSize) *LayoutManagerPage 
 // ContentSizeFn is a callback alias for ContentSize.
 func (p *LayoutManagerPage) ContentSizeFn(fn func(ctx *ctxPanel.PanelPage) enum.PageSize) *LayoutManagerPage {
 	p.CustomPanelPage.ContentSizeFn(fn)
+	return p
+}
+
+// VerticalPadding sets the vertical spacing around and within the page (see
+// enum.PageVerticalPadding). The space between the header, the grid and its
+// rows of blocks follows it.
+func (p *LayoutManagerPage) VerticalPadding(value enum.PageVerticalPadding) *LayoutManagerPage {
+	p.CustomPanelPage.VerticalPadding(value)
+	return p
+}
+
+// VerticalPaddingFn is a callback alias for VerticalPadding.
+func (p *LayoutManagerPage) VerticalPaddingFn(fn func(ctx *ctxPanel.PanelPage) enum.PageVerticalPadding) *LayoutManagerPage {
+	p.CustomPanelPage.VerticalPaddingFn(fn)
+	return p
+}
+
+// CompactVerticalPadding reduces the vertical spacing around and within the
+// page, between the rows of blocks too.
+func (p *LayoutManagerPage) CompactVerticalPadding() *LayoutManagerPage {
+	p.CustomPanelPage.CompactVerticalPadding()
+	return p
+}
+
+// NoVerticalPadding removes the vertical spacing around and within the page;
+// the rows of blocks keep a hairline between them.
+func (p *LayoutManagerPage) NoVerticalPadding() *LayoutManagerPage {
+	p.CustomPanelPage.NoVerticalPadding()
 	return p
 }
 
@@ -541,11 +598,11 @@ func (p *LayoutManagerPage) SetLayouts(w http.ResponseWriter, r *http.Request, d
 	}
 }
 
-// normalize pads the layouts to LayoutCount and clamps each block's column
-// span to the current GridColumns setting (in case the admin lowered the grid
-// after layouts were saved).
+// normalize pads the layouts to LayoutCount (or one page, when the user
+// adds them) and clamps each block's column span to the current GridColumns
+// setting (in case the admin lowered the grid after layouts were saved).
 func (p *LayoutManagerPage) normalize(state LayoutState) LayoutState {
-	state.EnsureLayouts(p.layoutCount)
+	state.EnsureLayouts(max(1, p.layoutCount))
 	for li := range state.Layouts {
 		blocks := state.Layouts[li].Blocks
 		for i := range blocks {

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/a-h/templ"
+	"github.com/iridiumgo/iridium/core/context/ctxPanel"
+	"github.com/iridiumgo/iridium/core/enum"
 )
 
 func TestNativePageExtensionBuildersRemainFluent(t *testing.T) {
@@ -34,5 +36,28 @@ func TestCustomPageCloneOwnsItsResolvableState(t *testing.T) {
 	}
 	if cloned.PanelPageResolvable == p.PanelPageResolvable {
 		t.Fatal("per-request page clone shares its resolvable state")
+	}
+}
+
+// The vertical padding builders keep the chain going and reach the copy of
+// the page each request renders.
+func TestVerticalPaddingBuildersReachEachRequest(t *testing.T) {
+	none := func(*ctxPanel.PanelPage) enum.PageVerticalPadding { return enum.PageVerticalPaddingNone }
+	for name, tc := range map[string]struct {
+		build func(*LayoutManagerPage) *LayoutManagerPage
+		want  enum.PageVerticalPadding
+	}{
+		"compact": {(*LayoutManagerPage).CompactVerticalPadding, enum.PageVerticalPaddingCompact},
+		"none":    {(*LayoutManagerPage).NoVerticalPadding, enum.PageVerticalPaddingNone},
+		"value": {func(p *LayoutManagerPage) *LayoutManagerPage {
+			return p.VerticalPadding(enum.PageVerticalPaddingCompact)
+		}, enum.PageVerticalPaddingCompact},
+		"callback": {func(p *LayoutManagerPage) *LayoutManagerPage { return p.VerticalPaddingFn(none) }, enum.PageVerticalPaddingNone},
+	} {
+		p := tc.build(NewLayoutManagerPage("Dashboard", "dashboard")).GridColumns(3)
+		perRequest := p.cloneCustomPanelPage()
+		if got := perRequest.VerticalPaddingStr.Get(nil); got != tc.want {
+			t.Errorf("%s: a request renders vertical padding %q, want %q", name, got, tc.want)
+		}
 	}
 }

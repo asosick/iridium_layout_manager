@@ -1,6 +1,7 @@
 package views
 
 import (
+    "encoding/json"
     "fmt"
     "strconv"
     "strings"
@@ -11,6 +12,11 @@ import (
 // attribute set:
 //
 //   - data-lm-grid:        marker for the script.
+//   - data-lm-shown:       the page this grid shows, which can differ from
+//                          the one asked for (a page added, removed, or not
+//                          in the committed layout).
+//   - data-lm-names:       the pages' names as a JSON array ("" shows the
+//                          number), for the page selector.
 //   - data-lm-populated:   which pages hold blocks, for the page selector.
 //   - data-lm-unsaved:     whether the user has a draft that differs from
 //                          the committed layout shown in view mode.
@@ -23,6 +29,8 @@ templ Grid(d *PageData) {
         class="lm-grid"
         style={ fmt.Sprintf("--lm-cols:%d", d.GridColumns) }
         data-lm-grid
+        data-lm-shown={ strconv.Itoa(d.CurrentLayout) }
+        data-lm-names={ pageNamesJSON(d) }
         data-lm-populated={ populatedFlags(d) }
         data-lm-unsaved={ strconv.FormatBool(d.Unsaved) }
         data-reorder-url={ d.ReorderURL }
@@ -45,6 +53,16 @@ templ Grid(d *PageData) {
             @Block(d, b)
         }
     </div>
+}
+
+// pageNamesJSON lists the pages' names: ["Overview","",…].
+func pageNamesJSON(d *PageData) string {
+    names := d.PageNames
+    if names == nil {
+        names = []string{}
+    }
+    buf, _ := json.Marshal(names)
+    return string(buf)
 }
 
 // populatedFlags lists, per page, whether it holds blocks: "1,0,1".

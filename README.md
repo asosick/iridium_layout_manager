@@ -109,8 +109,10 @@ block ID (`ctxkeys.FEIDOverride`), so a block can keep settings per instance.
 layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     Blocks(...).
     GridColumns(3).            // 1..N column grid
-    LayoutCount(3).            // number of pages the user can flip between (default 3)
+    LayoutCount(3).            // fix the number of pages (default: users add their own)
+    RenamablePages(true).      // users can name their pages (default true)
     Heading("My Dashboard").   // override the H1
+    CompactVerticalPadding().  // Iridium's tighter page spacing (or NoVerticalPadding)
     ShowLockButton(true).      // hide to keep the page permanently editable
     Reorderable(true).         // enable drag-to-reorder
     Resizable(true).           // enable resize controls
@@ -120,14 +122,33 @@ layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
 
 ### Multiple pages
 
-Each user gets `LayoutCount` separate pages (default 3) to arrange independently.
-Numbered buttons at the top switch between them, and the keys `1`..`9` jump
-straight to a page (not while typing in a field, and not with Ctrl/Cmd, which
-the browser uses to switch tabs). The page shown is kept in the address
-(`?layout=N`), so a reload stays on it. In edit mode every page number is shown
-so you can populate empty ones; in view mode only pages that actually contain
-blocks show their number (and the strip hides entirely when only one page is in
-use). All pages persist together in a single `LayoutState`.
+Each user arranges one or more pages independently. Buttons at the top switch
+between them, and the keys `1`..`9` jump straight to a page (not while typing
+in a field, and not with Ctrl/Cmd, which the browser uses to switch tabs). The
+page shown is kept in the address (`?layout=N`), so a reload stays on it. In
+edit mode every page is shown so you can populate empty ones; in view mode only
+pages that actually contain blocks show (and the strip hides entirely when only
+one page is in use). All pages persist together in a single `LayoutState`.
+
+By default users decide how many pages they have: they start with one, and in
+edit mode **+** adds a page after the last and shows it, and the bin removes
+the page shown with its blocks (after asking, if it has any). `LayoutCount(n)`
+fixes the number of pages instead: every user has `n`, and there is no **+** or
+bin.
+
+A page's button shows its name, or its number when it has none. In edit mode
+the pencil (or a double-click on a page's button) renames a page: Enter keeps
+the name, Escape keeps the old one, and an empty name shows the number again.
+`RenamablePages(false)` turns this off. Adding, removing and renaming pages
+are edits like any other: Done commits them, and Reset and Cancel discard them.
+
+### Spacing
+
+`VerticalPadding`, `VerticalPaddingFn`, `CompactVerticalPadding` and
+`NoVerticalPadding` are Iridium's page options for the vertical space around
+and within the page. The layout follows them: compact halves the space below
+the header and between rows of blocks, and none leaves only a hairline between
+rows.
 
 ### Persistence
 
@@ -146,7 +167,8 @@ type LoadHook func(r *http.Request) (LayoutState, error)
 type SaveHook func(r *http.Request, state LayoutState) error
 ```
 
-`LayoutState` is JSON-serialisable; persist it as a blob keyed by user. With both
+`LayoutState` is JSON-serialisable (`{"layouts":[{"name":"Cameras","blocks":[…]}]}`,
+the name only when the page has one); persist it as a blob keyed by user. With both
 hooks, your storage is the committed layout: view mode, Reset and a new draft
 read it through `LoadHook`, and Done writes it through `SaveHook` (nothing is
 committed if the hook fails). The plugin copies what `LoadHook` returns and
@@ -169,8 +191,8 @@ Edits change the page in place: remove, resize, move and reorder answer 204
 (resize with the stored span in `X-Layout-Manager-Cols`), and Add answers the
 one new block. The other blocks are never re-rendered, so widgets keep their
 state (a table's sort and page, a chart) and focus stays where it was. Only
-switching page, entering edit mode with unsaved changes, and Reset load a
-whole grid.
+switching, adding or removing a page, entering edit mode with unsaved changes,
+and Reset load a whole grid. Renaming a page answers the name kept.
 
 Drag-to-reorder uses the Alpine Sort plugin that Iridium's core JS bundle
 already ships with. After a drop the page posts the order the grid shows

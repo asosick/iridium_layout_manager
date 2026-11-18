@@ -16,24 +16,26 @@ import (
 // named by ?layout=N (so a reload stays on the page the user was on), else
 // the first layout with content.
 func (p *LayoutManagerPage) buildInitialPageData(w http.ResponseWriter, r *http.Request, state LayoutState, unsaved bool) *views.PageData {
-	current := state.FirstUsedLayout(p.layoutCount)
+	count := p.pageCount(state)
+	current := state.FirstUsedLayout(count)
 	if raw := r.URL.Query().Get("layout"); raw != "" {
-		if i, err := strconv.Atoi(raw); err == nil && i >= 0 && i < p.layoutCount {
+		if i, err := strconv.Atoi(raw); err == nil && i >= 0 && i < count {
 			current = i
 		}
 	}
 	d := p.pageData(w, r, state, current)
 	d.Unsaved = unsaved
-	d.Blocks = p.renderBlocks(w, r, d, state.LayoutAt(current, p.layoutCount).Blocks)
+	d.Blocks = p.renderBlocks(w, r, d, state.LayoutAt(d.CurrentLayout, count).Blocks)
 	return d
 }
 
 // renderGrid returns the grid of one layout (the swap target for page
-// switches and Reset).
+// switches, Reset and adding or removing a page). A page the state does not
+// have shows its last.
 func (p *LayoutManagerPage) renderGrid(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int, unsaved bool) templ.Component {
 	d := p.pageData(w, r, state, currentLayout)
 	d.Unsaved = unsaved
-	d.Blocks = p.renderBlocks(w, r, d, state.LayoutAt(currentLayout, p.layoutCount).Blocks)
+	d.Blocks = p.renderBlocks(w, r, d, state.LayoutAt(d.CurrentLayout, d.LayoutCount).Blocks)
 	return views.Grid(d)
 }
 
@@ -42,9 +44,8 @@ func (p *LayoutManagerPage) renderGrid(w http.ResponseWriter, r *http.Request, s
 func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, state LayoutState, currentLayout int) *views.PageData {
 	prefix := panelPathFromRequest(r) + p.SlugStr
 
-	if currentLayout < 0 || currentLayout >= p.layoutCount {
-		currentLayout = 0
-	}
+	count := p.pageCount(state)
+	currentLayout = max(0, min(currentLayout, count-1))
 
 	d := &views.PageData{
 		GridColumns:    p.gridCols,
@@ -52,21 +53,27 @@ func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, sta
 		AllowReorder:   p.allowReorder,
 		AllowResize:    p.allowResize,
 		ZenEnabled:     p.zenEnabled,
-		LayoutCount:    p.layoutCount,
+		LayoutCount:    count,
+		AddablePages:   !p.fixedPages(),
+		RenamablePages: p.allowRename,
 		CurrentLayout:  currentLayout,
-		LayoutContent:  state.ContentFlags(p.layoutCount),
-		UsedLayouts:    state.UsedLayouts(p.layoutCount),
+		LayoutContent:  state.ContentFlags(count),
+		PageNames:      state.Names(count),
+		UsedLayouts:    state.UsedLayouts(count),
 		Request:        r,
 		Writer:         w,
 		URLs: views.PageURLs{
-			Add:     prefix + routeAdd,
-			Remove:  prefix + routeRemove,
-			Resize:  prefix + routeResize,
-			Move:    prefix + routeMove,
-			Reorder: prefix + routeReorder,
-			Select:  prefix + routeSelect,
-			Save:    prefix + routeSave,
-			Reset:   prefix + routeReset,
+			Add:        prefix + routeAdd,
+			Remove:     prefix + routeRemove,
+			Resize:     prefix + routeResize,
+			Move:       prefix + routeMove,
+			Reorder:    prefix + routeReorder,
+			Select:     prefix + routeSelect,
+			Save:       prefix + routeSave,
+			Reset:      prefix + routeReset,
+			AddPage:    prefix + routeAddPage,
+			RemovePage: prefix + routeRemovePage,
+			RenamePage: prefix + routeRenamePage,
 		},
 	}
 

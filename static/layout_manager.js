@@ -30,9 +30,17 @@
         // Which page (layout) is shown: the selector highlight and every
         // request's layout.
         currentLayout: 0,
-        layoutCount: 1,
-        // Which pages hold blocks, from the grid shown (data-lm-populated).
+        // The pages, each one's name ('' shows its number), and which hold
+        // blocks, from the grid shown (data-lm-names, data-lm-populated).
+        pages: [],
         populated: [],
+        // Whether the user adds and removes pages (no fixed LayoutCount), and
+        // names them.
+        addablePages: false,
+        renamablePages: false,
+        // The page being renamed (its index, else -1) and the name typed.
+        renaming: -1,
+        renameValue: '',
         // The block IDs in the order they show.
         order: [],
         lockAfterDone: true,
@@ -57,10 +65,14 @@
                 add: data.lmAddUrl || '',
                 save: data.lmSaveUrl || '',
                 reset: data.lmResetUrl || '',
+                addPage: data.lmAddPageUrl || '',
+                removePage: data.lmRemovePageUrl || '',
+                renamePage: data.lmRenamePageUrl || '',
             };
             this.lockAfterDone = data.lmLockAfterDone !== 'false';
             this.editMode = data.lmEditDefault === 'true';
-            this.layoutCount = parseInt(data.lmLayoutCount || '1', 10) || 1;
+            this.addablePages = data.lmAddablePages === 'true';
+            this.renamablePages = data.lmRenamablePages === 'true';
             this.currentLayout = parseInt(data.lmCurrentLayout || '0', 10) || 0;
             this._queue = Promise.resolve();
 
@@ -109,6 +121,13 @@
             const grid = this.grid();
             if (!grid) return;
             this.populated = (grid.dataset.lmPopulated || '').split(',').map(flag => flag === '1');
+            let names = null;
+            try { names = JSON.parse(grid.dataset.lmNames || 'null'); } catch (err) { /* numbers below */ }
+            this.pages = Array.isArray(names) ? names : this.populated.map(() => '');
+            // The page shown can differ from the one asked for: a page added
+            // or removed, or one the committed layout does not have.
+            const shown = parseInt(grid.dataset.lmShown || '', 10);
+            if (Number.isInteger(shown) && shown !== this.currentLayout) this.keepInAddress(shown);
             this.syncOrder();
             window.requestAnimationFrame(() => grid.classList.add('lm-masonry-ready'));
         },
@@ -127,6 +146,30 @@
 
         pageShown(i) {
             return this.editMode || !!this.populated[i];
+        },
+
+        pageLabel(i) {
+            return this.pages[i] || this.pageNumber(i);
+        },
+
+        pageNumber(i) {
+            return String(i + 1);
+        },
+
+        pageClass(i) {
+            return this.currentLayout === i ? 'ir-btn-primary' : 'ir-btn-outline';
+        },
+
+        isRenaming(i) {
+            return this.renaming === i;
+        },
+
+        renameFieldClass(i) {
+            return this.renaming === i ? '' : 'lm-page-name-hidden';
+        },
+
+        canRemovePage() {
+            return this.editMode && this.addablePages && this.pages.length > 1;
         },
 
         // --- requests -------------------------------------------------------------
@@ -215,7 +258,7 @@
                 if (grid) grid.dataset.lmUnsaved = 'false';
                 if (this.lockAfterDone) this.editMode = false;
                 const next = parseInt(response.headers.get('X-Iridium-Layout-Manager-Next-Layout') || '', 10);
-                if (Number.isInteger(next) && next >= 0 && next < this.layoutCount && next !== this.currentLayout) {
+                if (Number.isInteger(next) && next >= 0 && next < this.pages.length && next !== this.currentLayout) {
                     this.selectLayout(next);
                 }
             });
@@ -243,26 +286,86 @@
             }
         },
 
-        // selectLayout shows page i and keeps it in the address, so a reload
-        // stays on it.
+        // selectLayout shows page i.
         selectLayout(i) {
+            this.keepInAddress(i);
+            this.enqueue(() => this.loadPage(i));
+        },
+
+        // keepInAddress makes page i the current one and keeps it in the
+        // address, so a reload stays on it.
+        keepInAddress(i) {
             this.currentLayout = i;
             const url = new URL(window.location.href);
             url.searchParams.set('layout', String(i));
             window.history.replaceState(window.history.state, '', url);
-            this.enqueue(() => this.loadPage(i));
         },
 
         // 1..9 switches page, unless the key is typed into a field or comes
         // with a modifier: Ctrl/Cmd+digit belongs to the browser's tabs.
         onHotkey(e) {
             if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
-            if (this.layoutCount <= 1 || !/^[1-9]$/.test(e.key)) return;
+            if (this.pages.length <= 1 || !/^[1-9]$/.test(e.key)) return;
             if (e.target && e.target.closest && e.target.closest(EDITABLE)) return;
             const n = parseInt(e.key, 10);
-            if (n > this.layoutCount) return;
+            if (n > this.pages.length) return;
             e.preventDefault();
             this.selectLayout(n - 1);
+        },
+
+        // --- pages ------------------------------------------------------------------
+        //
+        // Adding, removing and renaming pages are edits like any other: they
+        // change the draft, which Done commits and Reset or Cancel discards.
+
+        // addPage adds an empty page after the last and shows it.
+        addPage() {
+            if (!this.addablePages) return;
+            this.enqueue(() => this.swapGrid('POST', this._urls.addPage));
+        },
+
+        // removePage removes the page shown, with its blocks (asking first if
+        // it has any), and shows the one before it.
+        removePage() {
+            if (!this.canRemovePage()) return;
+            const layout = this.currentLayout;
+            if (this.order.length > 0
+                && !window.confirm('Remove page "' + this.pageLabel(layout) + '" and its blocks?')) return;
+            this.enqueue(() => this.swapGrid('POST', this._urls.removePage + '?layout=' + layout));
+        },
+
+        // startRename shows a field in place of page i's button.
+        startRename(i) {
+            if (!this.editMode || !this.renamablePages || i < 0 || i >= this.pages.length) return;
+            if (i !== this.currentLayout) this.selectLayout(i);
+            this.renaming = i;
+            this.renameValue = this.pages[i] || '';
+            this.$nextTick(() => {
+                const field = this._root.querySelectorAll('#lm-selectors .lm-page-name')[i];
+                if (field) {
+                    field.focus();
+                    field.select();
+                }
+            });
+        },
+
+        // commitRename keeps the name typed (Enter, or leaving the field); an
+        // empty name shows the page's number again.
+        commitRename() {
+            const i = this.renaming;
+            if (i < 0) return;
+            this.renaming = -1;
+            const name = (this.renameValue || '').trim();
+            if (name === (this.pages[i] || '')) return;
+            this.enqueue(async () => {
+                const body = new URLSearchParams({ name }).toString();
+                const response = await this.post(this._urls.renamePage + '?layout=' + i, body);
+                if (response.ok) this.pages[i] = await response.text();
+            });
+        },
+
+        cancelRename() {
+            this.renaming = -1;
         },
 
         enterZen() {

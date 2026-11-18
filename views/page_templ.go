@@ -9,7 +9,6 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -27,10 +26,15 @@ type PageData struct {
 	AllowResize    bool
 	ZenEnabled     bool
 	// Multi-layout (multi-page) support.
-	LayoutCount   int    // total customizable pages (>=1)
-	CurrentLayout int    // index of the layout currently rendered
-	LayoutContent []bool // per-index: does layout i hold any blocks?
-	UsedLayouts   int    // count of non-empty layouts
+	LayoutCount   int      // pages in the layout state shown (>=1)
+	CurrentLayout int      // index of the layout currently rendered
+	LayoutContent []bool   // per-index: does layout i hold any blocks?
+	PageNames     []string // per-index: the page's name, "" shows its number
+	UsedLayouts   int      // count of non-empty layouts
+	// AddablePages: the user adds and removes pages (no fixed LayoutCount).
+	AddablePages bool
+	// RenamablePages: the user can name pages.
+	RenamablePages bool
 	// Unsaved reports a draft that differs from the committed layout, which
 	// view mode shows: entering edit mode then loads the draft.
 	Unsaved bool
@@ -57,7 +61,14 @@ type PageURLs struct {
 	Select  string // append ?layout=N — switch displayed layout
 	Save    string
 	Reset   string
+	// Pages: add one, remove ?layout=N, rename ?layout=N (form name=…).
+	AddPage    string
+	RemovePage string
+	RenamePage string
 }
+
+// PageNameLength is the longest page name the server keeps, in characters.
+const PageNameLength = 40
 
 // BlockOption is one entry in the "Add" dropdown.
 type BlockOption struct {
@@ -146,6 +157,11 @@ func PageAttributes(d *PageData) templ.Attributes {
 		"data-lm-add-url":         d.URLs.Add,
 		"data-lm-save-url":        d.URLs.Save,
 		"data-lm-reset-url":       d.URLs.Reset,
+		"data-lm-add-page-url":    d.URLs.AddPage,
+		"data-lm-remove-page-url": d.URLs.RemovePage,
+		"data-lm-rename-page-url": d.URLs.RenamePage,
+		"data-lm-addable-pages":   strconv.FormatBool(d.AddablePages),
+		"data-lm-renamable-pages": strconv.FormatBool(d.RenamablePages),
 		"data-lm-layout-count":    strconv.Itoa(d.LayoutCount),
 		"data-lm-current-layout":  strconv.Itoa(d.CurrentLayout),
 		"data-lm-lock-after-done": strconv.FormatBool(d.ShowLockButton),
@@ -213,7 +229,7 @@ func Toolbar(d *PageData) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(opt.Key)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 141, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 157, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -226,7 +242,7 @@ func Toolbar(d *PageData) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(opt.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 141, Col: 69}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 157, Col: 69}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -324,20 +340,25 @@ func Toolbar(d *PageData) templ.Component {
 	})
 }
 
-// Selectors renders the numbered page (layout) selector buttons. Behaviour
-// mirrors the Filament original:
+// Selectors renders the page (layout) selector: one button per page, showing
+// its name, or its number when it has none. Behaviour mirrors the Filament
+// original:
 //
 //   - The whole strip is hidden unless we're editing OR more than one layout
 //     holds content.
-//   - In edit mode every numbered button shows so the user can populate empty
+//   - In edit mode every page's button shows so the user can populate empty
 //     pages; in view mode only the buttons for pages that actually have content
 //     appear.
 //   - The active page is highlighted (ir-btn-primary), the rest are ir-btn-outline.
 //   - Clicking (or pressing 1..9) calls selectLayout(i), which swaps the grid
 //     and updates the highlight.
 //
-// Which pages hold content comes from the grid shown (data-lm-populated), so
-// the strip stays right as blocks are added and removed.
+// The pages, their names and which hold content come from the grid shown
+// (data-lm-names, data-lm-populated), so the strip follows pages and blocks
+// as they are added, removed and renamed. In edit mode the strip ends with
+// the page actions: rename the page shown (a double-click on a page does the
+// same), and, when the user decides how many pages there are, remove it or
+// add one.
 func Selectors(d *PageData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -359,95 +380,87 @@ func Selectors(d *PageData) templ.Component {
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		if d.LayoutCount > 1 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<div id=\"lm-selectors\" class=\"lm-selectors\" x-show=\"selectorsShown()\" x-cloak>")
+		if d.AddablePages || d.LayoutCount > 1 {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<div id=\"lm-selectors\" class=\"lm-selectors\" x-show=\"selectorsShown()\" x-cloak><template x-for=\"(name, i) in pages\" :key=\"i\"><span class=\"lm-page-tab\" x-show=\"pageShown(i)\"><button type=\"button\" class=\"lm-layout-btn\" :class=\"pageClass(i)\" :data-lm-layout=\"i\" x-show=\"!isRenaming(i)\" @click=\"selectLayout(i)\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			for i := 0; i < d.LayoutCount; i++ {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<button type=\"button\" x-show=\"")
+			if d.RenamablePages {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, " @dblclick=\"startRename(i)\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "><span class=\"lm-layout-label\" x-text=\"pageLabel(i)\"></span></button> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if d.RenamablePages {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "  <input type=\"text\" class=\"lm-page-name\" maxlength=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var6 string
-				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("pageShown(%d)", i))
+				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(strconv.Itoa(PageNameLength))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 201, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 240, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\" :class=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var7 string
-				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(layoutBtnClass(i))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 202, Col: 46}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\" class=\"lm-layout-btn\" data-lm-layout=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var8 string
-				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(strconv.Itoa(i))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 204, Col: 52}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" @click=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var9 string
-				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("selectLayout(%d)", i))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 205, Col: 63}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var10 string
-				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(i + 1))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 207, Col: 41}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" aria-label=\"Page name\" :class=\"renameFieldClass(i)\" x-model=\"renameValue\" :placeholder=\"pageNumber(i)\" @keydown.enter.prevent=\"commitRename\" @keydown.escape.prevent=\"cancelRename\" @blur=\"commitRename\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</span></template>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if d.RenamablePages {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<button type=\"button\" class=\"ir-btn-outline lm-page-action\" x-show=\"editMode\" aria-label=\"Rename page\" title=\"Rename page\" @click=\"startRename(currentLayout)\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = icons.Pencil.Component().Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</button> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			if d.AddablePages {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<button type=\"button\" class=\"ir-btn-outline lm-page-action\" x-show=\"canRemovePage()\" aria-label=\"Remove page\" title=\"Remove page\" @click=\"removePage\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = icons.Trash.Component().Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</button> <button type=\"button\" class=\"ir-btn-outline lm-page-action\" x-show=\"editMode\" aria-label=\"Add page\" title=\"Add page\" @click=\"addPage\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = icons.Plus.Component().Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</button>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		return nil
 	})
-}
-
-// layoutBtnClass returns the :class expression toggling the active page's
-// highlight against Alpine's currentLayout state.
-func layoutBtnClass(i int) string {
-	return fmt.Sprintf("currentLayout === %d ? 'ir-btn-primary' : 'ir-btn-outline'", i)
 }
 
 var _ = templruntime.GeneratedTemplate

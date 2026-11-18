@@ -19,8 +19,10 @@ type Block struct {
 
 // Layout is a single customizable page (a "layout" / "view" in the Filament
 // original). Each layout holds its own ordered list of blocks. Users flip
-// between layouts with the numbered selector buttons / cmd+N hotkeys.
+// between layouts with the page selector buttons / 1..9 hotkeys.
 type Layout struct {
+	// Name labels the page's selector button; empty shows its number.
+	Name   string  `json:"name,omitempty"`
 	Blocks []Block `json:"blocks"`
 }
 
@@ -83,6 +85,29 @@ func (s *LayoutState) ContentFlags(count int) []bool {
 		flags[i] = len(s.Layouts[i].Blocks) > 0
 	}
 	return flags
+}
+
+// Names returns the names of the first count layouts, "" for one without a
+// name (or not there yet).
+func (s *LayoutState) Names(count int) []string {
+	if count < 1 {
+		count = 1
+	}
+	names := make([]string, count)
+	for i := 0; i < count && i < len(s.Layouts); i++ {
+		names[i] = s.Layouts[i].Name
+	}
+	return names
+}
+
+// RemoveLayout drops the layout at index i and its blocks. Returns true if
+// anything was removed.
+func (s *LayoutState) RemoveLayout(i int) bool {
+	if i < 0 || i >= len(s.Layouts) {
+		return false
+	}
+	s.Layouts = append(s.Layouts[:i], s.Layouts[i+1:]...)
+	return true
 }
 
 // UsedLayouts counts how many layouts (capped at count) hold at least one

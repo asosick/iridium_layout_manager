@@ -14,6 +14,25 @@
     gap: 1.5rem;
 }
 
+/* Iridium's compact and no vertical padding (VerticalPadding) tighten the
+   page's own spacing; the space below the header and between the rows of
+   blocks follows. */
+[data-lm-page][data-vertical-padding="compact"] {
+    gap: 0.75rem;
+}
+
+[data-lm-page][data-vertical-padding="compact"] .lm-grid {
+    --lm-row-gap: 0.5rem;
+}
+
+[data-lm-page][data-vertical-padding="none"] {
+    gap: 0;
+}
+
+[data-lm-page][data-vertical-padding="none"] .lm-grid {
+    --lm-row-gap: 0.25rem;
+}
+
 /* The toolbar uses Iridium's native page-header action area. */
 .lm-toolbar {
     display: flex;
@@ -42,6 +61,60 @@
     height: 2rem;
     padding: 0 0.5rem;
     font-variant-numeric: tabular-nums;
+}
+
+/* One page in the strip: its button, or the field that renames it. */
+.lm-page-tab {
+    display: inline-flex;
+}
+
+/* A page's name, cut short with an ellipsis when it is long. */
+.lm-layout-label {
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The field that renames a page, in place of its button; it looks like the
+   "Add" dropdown. */
+.lm-page-name {
+    width: 10rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius, 0.375rem);
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-size: 0.875rem;
+}
+
+.lm-page-name:focus-visible {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 1px;
+}
+
+.lm-page-name.lm-page-name-hidden {
+    display: none;
+}
+
+/* Rename, remove and add page: square icon buttons after the pages. */
+.lm-page-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+}
+
+.lm-page-tab + .lm-page-action {
+    margin-left: 0.25rem;
+}
+
+.lm-page-action svg {
+    width: 1rem;
+    height: 1rem;
 }
 
 .lm-controls {

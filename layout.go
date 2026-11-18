@@ -467,14 +467,16 @@ func (p *LayoutManagerPage) owner(w http.ResponseWriter, r *http.Request) *userL
 }
 
 // committedState is the layout Done last committed (u locked). With both
-// hooks the application's storage holds it, so it is read from there.
+// hooks the application's storage holds it, so it is read from there. What
+// the LoadHook returns is copied first: it may be the application's stored
+// layout itself, and normalize and the edits change the state they get.
 func (p *LayoutManagerPage) committedState(r *http.Request, u *userLayouts) (LayoutState, error) {
 	if p.loadHook != nil && (u.committed == nil || p.saveHook != nil) {
 		state, err := p.loadHook(r)
 		if err != nil {
 			return p.normalize(LayoutState{}), err
 		}
-		return p.normalize(state), nil
+		return p.normalize(clone(state)), nil
 	}
 	if u.committed != nil {
 		return p.normalize(clone(*u.committed)), nil

@@ -308,7 +308,8 @@ func (p *LayoutManagerPage) handleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.saveHook != nil {
-		if err := p.saveHook(r, state); err != nil {
+		// The hook gets a copy of its own, which the application may keep.
+		if err := p.saveHook(r, clone(state)); err != nil {
 			logger.Error("[layoutmgr] save hook failed: %v", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return

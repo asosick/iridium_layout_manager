@@ -17,10 +17,12 @@ import (
 
 // LoadHook fetches the committed LayoutState for the current request's user,
 // for example from a database. Return a zero LayoutState{} (not an error)
-// when nothing is stored yet.
+// when nothing is stored yet. The plugin copies what it returns, so the hook
+// may hand out the layout it stores as it is.
 type LoadHook func(r *http.Request) (LayoutState, error)
 
-// SaveHook persists the LayoutState the user commits with Done.
+// SaveHook persists the LayoutState the user commits with Done. The state is
+// a copy the plugin keeps no reference to, so the hook may store it as it is.
 type SaveHook func(r *http.Request, state LayoutState) error
 
 // Layouts live on the server, per page and per user: the working draft that
@@ -126,7 +128,7 @@ func validAnonymousKey(s string) bool {
 }
 
 // clone deep-copies a layout state, so the store never shares slices with a
-// request.
+// request, and the plugin never shares them with the application's hooks.
 func clone(s LayoutState) LayoutState {
 	out := LayoutState{Layouts: make([]Layout, len(s.Layouts))}
 	for i, l := range s.Layouts {

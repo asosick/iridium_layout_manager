@@ -149,7 +149,9 @@ type SaveHook func(r *http.Request, state LayoutState) error
 `LayoutState` is JSON-serialisable; persist it as a blob keyed by user. With both
 hooks, your storage is the committed layout: view mode, Reset and a new draft
 read it through `LoadHook`, and Done writes it through `SaveHook` (nothing is
-committed if the hook fails). Only unsaved drafts stay in memory, so with
+committed if the hook fails). The plugin copies what `LoadHook` returns and
+gives `SaveHook` a copy of its own, so the hooks can keep one `LayoutState`
+and hand it out as it is: only Done changes it. Only unsaved drafts stay in memory, so with
 several instances use sticky sessions, or accept that an unsaved draft is lost
 when a user moves to another instance.
 

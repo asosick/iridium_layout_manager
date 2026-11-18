@@ -211,6 +211,15 @@ Breaking changes (fine for internal apps):
 - Edit responses are 204 or a single block, not the grid.
 - The page hotkeys are `1`..`9`.
 
+## After v0.2.0
+
+| # | Defect | Fix | Proved by |
+|---|---|---|---|
+| S21 | The first edit after Done, Reset or Cancel ran on the state the `LoadHook` returned. An application whose hooks keep one `LayoutState` and hand it out as it is (a settings struct, a cache) had its stored layout changed by an unsaved edit: Cancel, which reads the `LoadHook` again, could not drop it, and the next save kept it. Showing a layout also clamped the stored spans to the grid. | What the `LoadHook` returns is copied before use, and the `SaveHook` gets a copy of its own. | `routes_test.go` `TestS21_EditsAfterDoneLeaveTheStoredLayoutAlone` (add, resize, remove, move and reorder, then Cancel) and `TestS21_ShowingALayoutLeavesTheStoredSpansAlone` |
+
+The test app's hooks keep the layout as JSON, so every load there is a
+fresh copy: that is why the suites above did not catch S21.
+
 ## Suggested fix order (before the fixes)
 
 S18 first: one line of cause, every CSP-mode panel affected after the first

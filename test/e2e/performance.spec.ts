@@ -15,6 +15,12 @@ test('S5: one edit renders only what it changes', async ({ page }, testInfo) => 
   await lm.plant(layoutOf(TWELVE, ['short']));
   await lm.goto();
   await lm.edit();
+  // Editing starts the gallery's previews loading: let them finish first,
+  // so no preview render lands in an edit's count.
+  await lm.openGallery();
+  await lm.waitForIdle();
+  await lm.closeGallery();
+  await lm.waitForIdle();
   const ids = await lm.order();
   const short = ids[1];
 
@@ -34,7 +40,6 @@ test('S5: one edit renders only what it changes', async ({ page }, testInfo) => 
   const results = [];
   results.push(await measure('resize', '/lm/resize', () => lm.control(short, 'Increase size').click()));
   results.push(await measure('move', '/lm/move', () => lm.control(short, 'Move block right').click()));
-  // The gallery's previews load as it opens, before the add is measured.
   await lm.openGallery();
   await lm.waitForIdle();
   results.push(await measure('add', '/lm/add', () => lm.cardButton('short').click()));

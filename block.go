@@ -38,29 +38,23 @@ type BlockSpec interface {
 	RegisterRoutes(mux RouteRegistrar)
 }
 
-// BlockPreviewer is a BlockSpec with a preview of its own for the block
-// gallery: a still frame in place of a live feed, say. Without one, the
-// gallery shows the block itself, scaled down.
-type BlockPreviewer interface {
-	Preview(w http.ResponseWriter, r *http.Request) templ.Component
-}
-
 type previewKey struct{}
 
 // IsPreview reports whether a block is rendering as a preview in the block
 // gallery rather than placed on the page, so a heavy block (a camera feed, a
-// slow query) can render something lighter there.
+// slow query) can render something lighter there. A DynamicBlock asks with
+// its request; an Iridium widget with its context's, in any of its ...Fn
+// callbacks:
+//
+//	ChartDataFn(func(ctx *ctxWidget.Widget) map[string]any {
+//	    if layoutmgr.IsPreview(ctx.GetRequest()) {
+//	        return sampleData
+//	    }
+//	    return queryData(ctx.GetRequest())
+//	})
 func IsPreview(r *http.Request) bool {
 	preview, _ := r.Context().Value(previewKey{}).(bool)
 	return preview
-}
-
-// renderPreview is what the gallery shows for spec.
-func renderPreview(spec BlockSpec, w http.ResponseWriter, r *http.Request) templ.Component {
-	if p, ok := spec.(BlockPreviewer); ok {
-		return p.Preview(w, r)
-	}
-	return spec.Render(w, r)
 }
 
 // RouteRegistrar is the subset of an HTTP mux a block needs to register routes.

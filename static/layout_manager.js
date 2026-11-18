@@ -39,7 +39,10 @@
     const CARD_MIN_WIDTH = 150;
     const CARD_MAX_WIDTH = 340;
     // How many previews load at once.
-    const PREVIEW_CONCURRENCY = 3;
+    const PREVIEW_CONCURRENCY = 4;
+    // The longest a preview waits, once it has landed, for its block to finish
+    // drawing itself before it is shown anyway (ms).
+    const PREVIEW_SETTLE_MAX = 1000;
     // A press on a card that moves this far (px) is a drag, not a click.
     const DRAG_THRESHOLD = 6;
     // Near the top or bottom of the page a drag scrolls it, faster nearer the
@@ -161,6 +164,7 @@
         // and the card being dragged.
         _gallery: null,
         _previews: null,
+        _warming: false,
         _drag: null,
         // When the last drag of a card ended, so the click that ends it adds
         // nothing more.
@@ -207,11 +211,14 @@
             window.addEventListener('keydown', this._listeners.zenEscape, true);
             window.addEventListener('resize', this._listeners.resize);
             root.addEventListener('sort', this._listeners.sort);
-            // Leaving edit mode puts the gallery away.
+            // Entering edit mode starts the gallery's first previews loading;
+            // leaving it puts the gallery away.
             this.$watch('editMode', (editing) => {
-                if (!editing) this.closeGallery();
+                if (editing) this.warmGallery();
+                else this.closeGallery();
             });
             this.gridShown();
+            if (this.editMode) this.warmGallery();
         },
 
         destroy() {
@@ -227,7 +234,7 @@
             if (this._previews) {
                 this._previews.observer.disconnect();
                 this._previews.resize.disconnect();
-                this._previews.wrap.disconnect();
+                this._previews.area.disconnect();
                 this._previews = null;
             }
         },
@@ -679,6 +686,38 @@
             return Math.round(Math.min(PREVIEW_MAX_WIDTH, Math.max(PREVIEW_MIN_WIDTH, width || 320)));
         },
 
+        // warmGallery starts loading the previews the gallery shows first, in
+        // the browser's idle time once the page is being edited, so they are
+        // drawn by the time the gallery opens rather than after.
+        warmGallery() {
+            if (this._warming || this._previews) return;
+            this._warming = true;
+            const warm = () => {
+                this._warming = false;
+                if (!this.editMode || !this.gallery()) return;
+                this.placeGallery();
+                this.startPreviews();
+                this.queueFirstPreviews();
+            };
+            if (window.requestIdleCallback) window.requestIdleCallback(warm, { timeout: 800 });
+            else window.setTimeout(warm, 200);
+        },
+
+        // queueFirstPreviews loads the previews of the cards the row shows
+        // first, and a little past them, without waiting for them to scroll
+        // into view (the sheet may not be open yet).
+        queueFirstPreviews() {
+            const row = this.galleryRow();
+            if (!row || !this._previews) return;
+            const reach = row.clientWidth + 320;
+            let x = 0;
+            for (const card of this.visibleCards()) {
+                if (x > reach) break;
+                this.queuePreview(card);
+                x += card.offsetWidth + 14;
+            }
+        },
+
         // startPreviews loads each card's preview the first time it scrolls
         // into (or near) view, and refits a preview whose block changes size.
         startPreviews() {
@@ -700,18 +739,20 @@
                         if (card) this.fitPreview(card);
                     });
                 }),
-                // A frame later: placing the sheet can change the wrap's
-                // padding, which a change inside the callback would report
-                // as a ResizeObserver loop.
-                wrap: new ResizeObserver(() => window.requestAnimationFrame(() => this.galleryResized())),
+                // The area the page is drawn in, whose size changes with the
+                // window and the sidebar but never with the blocks (watching
+                // anything that grows with them would see the masonry's own
+                // changes as a ResizeObserver loop). A frame later, as
+                // placing the sheet changes the page's padding.
+                area: new ResizeObserver(() => window.requestAnimationFrame(() => this.galleryResized())),
             };
             this._previews = previews;
             this.galleryCards().forEach(card => {
                 this.fitPreview(card);
                 previews.observer.observe(card);
             });
-            const wrap = this._root.querySelector('.lm-grid-wrap');
-            if (wrap) previews.wrap.observe(wrap);
+            const area = this._root.closest('[data-main]');
+            if (area) previews.area.observe(area);
         },
 
         queuePreview(card) {
@@ -736,7 +777,9 @@
 
         // loadPreview has the server render the card's block, laid out as wide
         // as a placed block, through htmx: the block's own scripts start as
-        // they do on the page (a chart draws itself, a table loads).
+        // they do on the page (a chart draws itself, a table loads). The
+        // block stays hidden behind the card's placeholder until it has
+        // finished drawing, then fades in, so a half-drawn block never shows.
         async loadPreview(card) {
             const stage = card.querySelector('[data-lm-card-stage]');
             if (!stage || !card.isConnected || !this._previews) return;
@@ -747,9 +790,31 @@
             } catch (err) {
                 console.warn('[layoutmgr] preview of', card.dataset.key, err);
             }
+            if (stage.childElementCount > 0) await this.previewSettled(stage);
             card.dataset.lmPreview = stage.childElementCount > 0 ? 'ready' : 'failed';
             this.fitPreview(card);
             if (this._previews) this._previews.resize.observe(stage);
+        },
+
+        // previewSettled waits, up to PREVIEW_SETTLE_MAX, for a block that
+        // just landed to finish drawing: its charts started (Iridium marks a
+        // chart waiting to start data-apex-chart-pending) and its height
+        // still for two checks in a row.
+        previewSettled(stage) {
+            return new Promise((resolve) => {
+                const started = performance.now();
+                let last = -1;
+                let still = 0;
+                const check = () => {
+                    const height = stage.offsetHeight;
+                    const pending = stage.querySelector('[data-apex-chart-pending]');
+                    still = !pending && height === last ? still + 1 : 0;
+                    last = height;
+                    if (still >= 2 || performance.now() - started > PREVIEW_SETTLE_MAX) resolve();
+                    else window.setTimeout(check, 80);
+                };
+                window.setTimeout(check, 80);
+            });
         },
 
         // fitPreview scales the card's block down to the card's height, within
@@ -806,6 +871,8 @@
                 const haystack = (label + ' ' + (card.dataset.key || '')).toLowerCase();
                 const match = words.every(word => haystack.includes(word));
                 card.hidden = !match;
+                // Its place in the entrance as the sheet opens.
+                if (match) card.style.setProperty('--lm-i', String(Math.min(shown, 10)));
                 if (match) shown++;
                 markWords(card.querySelector('[data-lm-card-label]'), label, words);
             });

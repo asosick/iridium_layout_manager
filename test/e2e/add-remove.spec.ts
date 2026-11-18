@@ -4,6 +4,8 @@ import { LayoutPage, openEditor } from './support/layout';
 test.describe('add and remove', () => {
   test('every kind of block can be added and renders its own content', async ({ page }) => {
     const lm = await openEditor(page);
+    // Open once for all eight adds (addBlock leaves it as it finds it).
+    await lm.openGallery();
     for (const kind of ['short', 'tall', 'grow', 'slow', 'controls']) {
       const id = await lm.addBlock(kind);
       await expect(lm.block(id).locator(`[data-e2e-kind="${kind}"]`)).toHaveAttribute('data-e2e-id', id);
@@ -14,6 +16,7 @@ test.describe('add and remove', () => {
     await expect(lm.block(chart).locator('.apexcharts-canvas')).toBeVisible();
     const stats = await lm.addBlock('stats');
     await expect(lm.block(stats).getByText('Revenue', { exact: true })).toBeVisible();
+    await lm.closeGallery();
 
     await lm.done();
     await lm.reload();

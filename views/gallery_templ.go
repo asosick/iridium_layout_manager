@@ -48,7 +48,7 @@ func Gallery(d *PageData) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<template x-teleport=\"body\" data-lm-gallery-template><section id=\"lm-gallery\" class=\"lm-gallery\" data-lm-gallery :class=\"galleryClass()\" role=\"region\" aria-labelledby=\"lm-gallery-heading\" @keydown=\"onGalleryKeydown\"><div class=\"lm-gallery-grabber\" aria-hidden=\"true\"></div><div class=\"lm-gallery-head\"><div class=\"lm-gallery-title\"><h2 id=\"lm-gallery-heading\">Add blocks</h2><p>Drag one onto the page, or click to add it at the end.</p></div><label class=\"lm-gallery-search\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<template x-teleport=\"body\" data-lm-gallery-template><section id=\"lm-gallery\" class=\"lm-gallery\" data-lm-gallery :class=\"galleryClass()\" role=\"region\" aria-labelledby=\"lm-gallery-heading\" @keydown=\"onGalleryKeydown\"><div class=\"lm-gallery-grabber\" aria-hidden=\"true\"></div><div class=\"lm-gallery-head\"><div class=\"lm-gallery-title\"><h2 id=\"lm-gallery-heading\">Add blocks</h2><p>Drag one onto the page, or click to add it at the end.</p></div><div class=\"ir-input-wrapper lm-gallery-search\"><div class=\"ir-input-icon\" data-icon-left>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -56,7 +56,7 @@ func Gallery(d *PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<input type=\"search\" data-lm-gallery-search placeholder=\"Search blocks\" aria-label=\"Search blocks\" autocomplete=\"off\" spellcheck=\"false\" x-model=\"gallerySearch\" @input=\"filterGallery\" @keydown=\"onSearchKeydown\"> <span class=\"lm-gallery-count\" x-text=\"galleryCount()\"></span></label> <button type=\"button\" class=\"lm-gallery-close\" aria-label=\"Close block gallery\" title=\"Close (Esc)\" @click=\"closeGallery\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div><input type=\"search\" class=\"ir-input\" data-icon-left data-lm-gallery-search placeholder=\"Search blocks\" aria-label=\"Search blocks\" autocomplete=\"off\" spellcheck=\"false\" x-model=\"gallerySearch\" @input=\"filterGallery\" @keydown=\"onSearchKeydown\"></div><span class=\"lm-gallery-count\" x-text=\"galleryCount()\"></span> <button type=\"button\" class=\"ir-btn-icon-ghost lm-gallery-close\" aria-label=\"Close block gallery\" title=\"Close (Esc)\" @click=\"closeGallery\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -92,7 +92,7 @@ func Gallery(d *PageData) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue(opt.Key)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 72, Col: 75}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 77, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 			if templ_7745c5c3_Err != nil {
@@ -105,7 +105,7 @@ func Gallery(d *PageData) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(opt.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 72, Col: 100}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 77, Col: 100}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -118,7 +118,7 @@ func Gallery(d *PageData) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(opt.PreviewURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 72, Col: 136}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 77, Col: 136}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -131,7 +131,7 @@ func Gallery(d *PageData) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(opt.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 81, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 86, Col: 86}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -144,7 +144,7 @@ func Gallery(d *PageData) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue("Add " + opt.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 85, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `gallery.templ`, Line: 90, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {

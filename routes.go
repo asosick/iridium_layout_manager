@@ -163,8 +163,7 @@ func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePreview renders one block type for the block gallery, which shows it
-// scaled down: the BlockPreviewer's preview when the spec has one, else the
-// block itself. The render request says it is a preview (IsPreview) and gets
+// scaled down. The render request says it is a preview (IsPreview) and gets
 // a front-end id of its own, so its ids never collide with a placed block's.
 // Nothing changes.
 func (p *LayoutManagerPage) handlePreview(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +181,7 @@ func (p *LayoutManagerPage) handlePreview(w http.ResponseWriter, r *http.Request
 	ctx = context.WithValue(ctx, previewKey{}, true)
 	r = r.WithContext(ctx)
 	w.Header().Set("Cache-Control", "no-store")
-	p.writeHTML(w, r, renderPreview(spec, w, r))
+	p.writeHTML(w, r, spec.Render(w, r))
 }
 
 // previewID is the front-end id a block type's preview renders with.

@@ -36,10 +36,15 @@ templ Gallery(d *PageData) {
                     <h2 id="lm-gallery-heading">Add blocks</h2>
                     <p>Drag one onto the page, or click to add it at the end.</p>
                 </div>
-                <label class="lm-gallery-search">
-                    @icons.Search.Component()
+                // Iridium's own input with a leading icon, and ghost button.
+                <div class="ir-input-wrapper lm-gallery-search">
+                    <div class="ir-input-icon" data-icon-left>
+                        @icons.Search.Component()
+                    </div>
                     <input
                         type="search"
+                        class="ir-input"
+                        data-icon-left
                         data-lm-gallery-search
                         placeholder="Search blocks"
                         aria-label="Search blocks"
@@ -49,9 +54,9 @@ templ Gallery(d *PageData) {
                         @input="filterGallery"
                         @keydown="onSearchKeydown"
                     />
-                    <span class="lm-gallery-count" x-text="galleryCount()"></span>
-                </label>
-                <button type="button" class="lm-gallery-close" aria-label="Close block gallery" title="Close (Esc)" @click="closeGallery">
+                </div>
+                <span class="lm-gallery-count" x-text="galleryCount()"></span>
+                <button type="button" class="ir-btn-icon-ghost lm-gallery-close" aria-label="Close block gallery" title="Close (Esc)" @click="closeGallery">
                     @icons.X.Component()
                 </button>
             </div>

@@ -219,18 +219,22 @@ export class LayoutPage {
   }
 
   /**
-   * Waits until nothing is moving: the sheet sliding, the room below the grid
-   * growing or shrinking with it, blocks sliding aside, the page scrolling
-   * (a block a click added is scrolled into view).
+   * Waits until nothing is moving: the sheet sliding, its cards rising in or
+   * changing width, the room below the grid growing or shrinking with it,
+   * blocks sliding aside, the page scrolling (a block a click added is
+   * scrolled into view).
    */
   async sheetSettled() {
     await this.page.waitForFunction(() => {
       const sheet = document.querySelector('[data-lm-gallery]');
       const wrap = document.querySelector('.lm-grid-wrap');
-      const sliding = (el: Element | null) => !!el && el.getAnimations().length > 0;
+      // Running ones only: a finished animation that holds its last frame is
+      // still listed.
+      const sliding = (el: Element | null) => !!el && el.getAnimations().some(a => a.playState === 'running');
+      const cards = [...document.querySelectorAll('[data-lm-card]')].some(sliding);
       const moving = [...document.querySelectorAll('[data-lm-grid] > [data-lm-block]')]
         .some(el => el.getAnimations().some(a => (a as any).id === 'lm-flip'));
-      return !moving && !sliding(sheet) && !sliding(wrap);
+      return !moving && !cards && !sliding(sheet) && !sliding(wrap);
     });
     let last = -1;
     for (let still = 0; still < 3;) {

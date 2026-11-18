@@ -201,6 +201,12 @@
     grid-auto-rows: var(--lm-masonry-row);
 }
 
+/* A grid with no blocks holds only its message: no masonry rows, which
+   would squeeze the message into one 8px row and push its text off centre. */
+.lm-grid.lm-masonry-ready:not(:has(> [data-lm-block], > .lm-drop-slot)) {
+    grid-auto-rows: auto;
+}
+
 /* Narrow screens get one column, whatever the page's column count. */
 @container (max-width: 32rem) {
     .lm-grid,

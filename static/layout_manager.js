@@ -54,11 +54,19 @@
     const motionOff = () => document.documentElement.dataset.iridiumAnimationMode === 'none'
         || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    // An inert document to build copies in: nothing in it loads.
+    let inert = null;
+
     // staticClone copies rendered markup as a picture of itself: without
     // Alpine, htmx or ids (but an SVG's, which its fills refer to), so nothing
-    // in the copy starts up again, and with its canvases repainted.
+    // in the copy starts up again, and with its canvases repainted. A video
+    // becomes a still of the frame it shows, as a copy of it would load its
+    // source again (a stream's blob URL fails to); audio and embedded frames
+    // go. The copy is built in an inert document, so nothing loads before
+    // that is done.
     const staticClone = (node) => {
-        const clone = node.cloneNode(true);
+        inert = inert || document.implementation.createHTMLDocument('');
+        const copy = inert.importNode(node, true);
         const strip = (el) => {
             for (const attr of Array.from(el.attributes)) {
                 const name = attr.name;
@@ -69,13 +77,33 @@
                 }
             }
         };
-        strip(clone);
-        clone.querySelectorAll('*').forEach(strip);
-        const canvases = node.querySelectorAll('canvas');
-        clone.querySelectorAll('canvas').forEach((canvas, i) => {
+        strip(copy);
+        copy.querySelectorAll('*').forEach(strip);
+        const sourceCanvases = node.querySelectorAll('canvas');
+        const paint = Array.from(copy.querySelectorAll('canvas'), (canvas, i) => [canvas, sourceCanvases[i]]);
+        const sourceVideos = node.querySelectorAll('video');
+        copy.querySelectorAll('video').forEach((video, i) => {
+            const from = sourceVideos[i];
+            const still = inert.createElement('canvas');
+            ['class', 'style', 'hidden'].forEach(name => {
+                if (video.hasAttribute(name)) still.setAttribute(name, video.getAttribute(name));
+            });
+            still.width = (from && from.videoWidth) || 16;
+            still.height = (from && from.videoHeight) || 9;
+            // The box the video is laid out in, whatever styled it.
+            if (from && from.clientWidth) {
+                still.style.width = from.clientWidth + 'px';
+                still.style.height = from.clientHeight + 'px';
+            }
+            paint.push([still, from]);
+            video.replaceWith(still);
+        });
+        copy.querySelectorAll('audio, iframe, object, embed').forEach(el => el.remove());
+        const clone = document.adoptNode(copy);
+        paint.forEach(([to, from]) => {
             try {
-                canvas.getContext('2d').drawImage(canvases[i], 0, 0);
-            } catch (err) { /* empty or tainted: left blank */ }
+                if (from) to.getContext('2d').drawImage(from, 0, 0, to.width, to.height);
+            } catch (err) { /* nothing drawn yet, or tainted: left blank */ }
         });
         clone.setAttribute('x-ignore', '');
         clone.setAttribute('inert', '');

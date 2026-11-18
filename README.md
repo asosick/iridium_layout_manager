@@ -147,8 +147,8 @@ are edits like any other: Done commits them, and Reset and Cancel discard them.
 `VerticalPadding`, `VerticalPaddingFn`, `CompactVerticalPadding` and
 `NoVerticalPadding` are Iridium's page options for the vertical space around
 and within the page. The layout follows them: compact halves the space below
-the header and between rows of blocks, and none leaves only a hairline between
-rows.
+the header and between blocks (across a row as well as down it, so the grid
+stays even), and none leaves only a hairline between blocks.
 
 ### Persistence
 

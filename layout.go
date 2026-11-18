@@ -327,8 +327,8 @@ func (p *LayoutManagerPage) ContentSizeFn(fn func(ctx *ctxPanel.PanelPage) enum.
 }
 
 // VerticalPadding sets the vertical spacing around and within the page (see
-// enum.PageVerticalPadding). The space between the header, the grid and its
-// rows of blocks follows it.
+// enum.PageVerticalPadding). The space below the header and between blocks
+// follows it.
 func (p *LayoutManagerPage) VerticalPadding(value enum.PageVerticalPadding) *LayoutManagerPage {
 	p.CustomPanelPage.VerticalPadding(value)
 	return p
@@ -341,14 +341,14 @@ func (p *LayoutManagerPage) VerticalPaddingFn(fn func(ctx *ctxPanel.PanelPage) e
 }
 
 // CompactVerticalPadding reduces the vertical spacing around and within the
-// page, between the rows of blocks too.
+// page, and the space between blocks with it.
 func (p *LayoutManagerPage) CompactVerticalPadding() *LayoutManagerPage {
 	p.CustomPanelPage.CompactVerticalPadding()
 	return p
 }
 
 // NoVerticalPadding removes the vertical spacing around and within the page;
-// the rows of blocks keep a hairline between them.
+// blocks keep a hairline between them.
 func (p *LayoutManagerPage) NoVerticalPadding() *LayoutManagerPage {
 	p.CustomPanelPage.NoVerticalPadding()
 	return p

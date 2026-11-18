@@ -4,9 +4,10 @@ A standalone plugin for [Iridium](https://github.com/goiridium/iridium) that
 lets your end-users arrange their own dashboard pages: pick blocks (Iridium
 widgets or arbitrary `templ` components) from a gallery of live previews,
 drag them onto the page, drag-to-reorder, resize their column span, and
-commit the result. Layouts
-are kept on the server per user, with hooks to store committed layouts in your
-own database.
+commit the result. Layouts are kept on the server per user, with hooks to
+store committed layouts in your own database.
+
+![Editing a dashboard: the block gallery open along the bottom of the page, with a live preview of every block](docs/images/gallery.png)
 
 Ported from the [FilamentPHP Filament Layout Manager](https://github.com/asosick/filament-layout-manager)
 plugin to Iridium's HTMX + Alpine + templ stack.
@@ -92,12 +93,16 @@ appear, Enter adds the first match, Escape clears the search and then closes
 the sheet. Left and Right move between cards, and Enter or a click adds the
 card's block after the last.
 
-Each card is a live preview: the first time a card scrolls into view, the
-server renders the block (`GET /lm/preview?type=…`), laid out as wide as a
-placed block, and the card scales the whole of it down with a CSS transform.
-A block needs no styles of its own to preview, and a chart or a table looks as
-it will on the page. The preview is inert: nothing in it takes focus or
-clicks.
+Each card is a live preview of its block. The server renders the block
+(`GET /lm/preview?type=…`), laid out as wide as a placed block, and the card
+scales the whole of it down with a CSS transform: a block needs no styles of
+its own to preview, and a chart or a table looks as it will on the page. The
+previews of the first cards start loading as soon as the page is being
+edited, and the rest as they scroll into view; each stays behind a
+placeholder until its block has drawn itself, then fades in. A preview is
+inert: nothing in it takes focus or clicks.
+
+![Dragging a card onto the grid: the block's slot opens between two blocks, and the sheet steps down to a strip](docs/images/drag.png)
 
 Drag a card onto the grid and the sheet steps down to a strip, the grid opens
 a slot where the block will land (the block itself, faded, at the size it will
@@ -106,11 +111,11 @@ release over the strip or away from the grid, or press Escape, and nothing is
 added. Near the top or bottom of the page the page scrolls. On a touch screen,
 drag a card upwards to lift it; sideways, the row scrolls.
 
-A preview renders the block with its own front-end ID, so it never clashes
-with a placed copy. A heavy block (a camera feed, a slow query) can render
-something lighter in the gallery: `layoutmgr.IsPreview(r)` reports a preview
-render, and a `BlockSpec` that implements `BlockPreviewer` supplies a preview
-of its own.
+A preview renders the block with a front-end ID of its own, so it never
+clashes with a placed copy, and it is a render like any other: a heavy block
+(a camera feed, a slow query) can draw something lighter in the gallery.
+`layoutmgr.IsPreview(r)` reports a preview render, to a `DynamicBlock`
+through its request and to an Iridium widget through its context's:
 
 ```go
 layoutmgr.DynamicBlock("cam:"+cam.ID, cam.Name, func(w http.ResponseWriter, r *http.Request) templ.Component {
@@ -119,6 +124,14 @@ layoutmgr.DynamicBlock("cam:"+cam.ID, cam.Name, func(w http.ResponseWriter, r *h
     }
     return cameraStream(cam)
 })
+
+chart.New[*ctxWidget.Widget]("traffic").
+    ChartDataFn(func(ctx *ctxWidget.Widget) map[string]any {
+        if layoutmgr.IsPreview(ctx.GetRequest()) {
+            return sampleTraffic // no query for the gallery
+        }
+        return queryTraffic(ctx.GetRequest())
+    })
 ```
 
 ### Blocks that come and go
@@ -244,7 +257,10 @@ reloads the stored order.
 ## Development
 
 `go run ./cmd/demo` serves a showcase panel at
-http://127.0.0.1:8088/admin/dashboard (`DEMO_PORT` picks another port).
+http://127.0.0.1:8088/admin/dashboard (`DEMO_PORT` picks another port): ten
+blocks to arrange, among them Iridium charts, stats and tables, a static
+note and a dynamic block that uses `IsPreview`. The screenshots above are
+of it.
 
 `go test ./...` runs the integration tests: real Iridium panel routes over
 HTTPS, with CSRF and encrypted session cookies, through the test app in

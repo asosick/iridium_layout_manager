@@ -1,6 +1,6 @@
 # Iridium Layout Manager
 
-A standalone plugin for [Iridium](https://github.com/iridiumgo/iridium) that
+A standalone plugin for [Iridium](https://github.com/goiridium/iridium) that
 lets your end-users arrange their own dashboard pages: pick blocks (Iridium
 widgets or arbitrary `templ` components) from a dropdown, drop them onto the
 page, drag-to-reorder, resize their column span, and commit the result. Layouts
@@ -27,15 +27,15 @@ go get github.com/asosick/iridium_layout_manager@latest
 package main
 
 import (
-    "github.com/iridiumgo/iridium/core/panel"
-    "github.com/iridiumgo/iridium/core/widget/stats"
+    "github.com/goiridium/iridium/core/panel"
+    "github.com/goiridium/iridium/core/widget/stats"
 
     layoutmgr "github.com/asosick/iridium_layout_manager"
     "myapp/dashboard/components" // your own templ components
 )
 
 func main() {
-    salesStats := stats.NewStatsWidgetResolvable("sales-stats").
+    salesStats := stats.New("sales-stats").
         SetName("Sales Today")
         // ... configure stats ...
 
@@ -51,7 +51,7 @@ func main() {
         ).
         GridColumns(3)
 
-    p := panel.NewPanel("/admin").Pages(dashboard)
+    p := panel.New("/admin").Pages(dashboard)
     // ... mount the panel as usual ...
 }
 ```

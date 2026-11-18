@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/iridiumgo/iridium/core/widget"
+	"github.com/goiridium/iridium/core/widget"
 )
 
 // BlockSpec describes a block the user can add to the layout grid. The
@@ -79,10 +79,10 @@ type staticBlock struct {
 	comp       templ.Component
 }
 
-func (b *staticBlock) Key() string                                              { return b.key }
-func (b *staticBlock) Label() string                                            { return b.label }
+func (b *staticBlock) Key() string                                                   { return b.key }
+func (b *staticBlock) Label() string                                                 { return b.label }
 func (b *staticBlock) Render(_ http.ResponseWriter, _ *http.Request) templ.Component { return b.comp }
-func (b *staticBlock) RegisterRoutes(RouteRegistrar)                            {}
+func (b *staticBlock) RegisterRoutes(RouteRegistrar)                                 {}
 
 type dynamicBlock struct {
 	key, label string

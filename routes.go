@@ -10,10 +10,10 @@ import (
 	"unicode"
 
 	"github.com/a-h/templ"
+	"github.com/goiridium/iridium/core/context/ctxkeys"
+	"github.com/goiridium/iridium/core/logger"
+	"github.com/goiridium/iridium/network/wrapper"
 	"github.com/google/uuid"
-	"github.com/iridiumgo/iridium/core/context/ctxkeys"
-	"github.com/iridiumgo/iridium/core/logger"
-	"github.com/iridiumgo/iridium/network/wrapper"
 
 	"github.com/asosick/iridium_layout_manager/views"
 )

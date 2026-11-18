@@ -5,15 +5,15 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+	"github.com/goiridium/iridium/core/action/actions"
+	"github.com/goiridium/iridium/core/action/traits"
+	"github.com/goiridium/iridium/core/context/ctxPanel"
+	"github.com/goiridium/iridium/core/enum"
+	"github.com/goiridium/iridium/core/logger"
+	"github.com/goiridium/iridium/core/page/pages"
+	"github.com/goiridium/iridium/core/widget"
+	"github.com/goiridium/iridium/network/wrapper"
 	"github.com/iridiumgo/iridium-icons/icon"
-	"github.com/iridiumgo/iridium/core/action/actions"
-	"github.com/iridiumgo/iridium/core/action/traits"
-	"github.com/iridiumgo/iridium/core/context/ctxPanel"
-	"github.com/iridiumgo/iridium/core/enum"
-	"github.com/iridiumgo/iridium/core/logger"
-	"github.com/iridiumgo/iridium/core/page/panel"
-	"github.com/iridiumgo/iridium/core/widget"
-	"github.com/iridiumgo/iridium/network/wrapper"
 
 	"github.com/asosick/iridium_layout_manager/views"
 )
@@ -29,7 +29,7 @@ import (
 // zero configuration. Pass SaveHook/LoadHook to keep committed layouts in
 // your own database.
 type LayoutManagerPage struct {
-	*panel.CustomPanelPage
+	*pages.CustomPanelPage
 
 	blocks      []BlockSpec
 	blockSource func(r *http.Request) []BlockSpec
@@ -60,7 +60,7 @@ type LayoutManagerPage struct {
 //   - Resizeable = true
 //   - Persistence = per user, in the server's memory
 func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
-	cpp := panel.NewCustomPanelPage(name, slug)
+	cpp := pages.NewCustomPanelPage(name, slug)
 	// Render the page name as the panel chrome's title (the same heading every
 	// other panel page shows at the top). The plugin no longer draws its own
 	// heading inside the content, so this is the single source for the title.
@@ -213,53 +213,53 @@ func (p *LayoutManagerPage) LoadHook(fn LoadHook) *LayoutManagerPage {
 
 // --- Navigation wrappers ----------------------------------------------------
 //
-// The embedded *CustomPanelPage already exposes NavigationIcon / Label /
-// Group / Order, but they return *CustomPanelPage which breaks fluent chaining
+// The embedded *CustomPanelPage already exposes NavIcon / NavLabel /
+// NavGroup / NavOrder, but they return *CustomPanelPage which breaks fluent chaining
 // from a LayoutManagerPage. These wrappers delegate to the embedded methods
 // and return *LayoutManagerPage so you can keep the chain:
 //
 //	NewLayoutManagerPage("Dashboard", "dashboard").
-//	    NavigationIcon(icons.LayoutDashboard).
-//	    NavigationGroup("Overview").
+//	    NavIcon(icons.LayoutDashboard).
+//	    NavGroup("Overview").
 //	    Blocks(...).
 //	    GridColumns(3)
 
-// NavigationLabel overrides the label shown in the sidebar (defaults to the
-// page name).
-func (p *LayoutManagerPage) NavigationLabel(label string) *LayoutManagerPage {
-	p.CustomPanelPage.NavigationLabel(label)
+// NavLabel overrides the label shown in the sidebar (defaults to the page
+// name).
+func (p *LayoutManagerPage) NavLabel(label string) *LayoutManagerPage {
+	p.CustomPanelPage.NavLabel(label)
 	return p
 }
 
-// NavigationGroup places this page under a named group in the sidebar.
-func (p *LayoutManagerPage) NavigationGroup(group string) *LayoutManagerPage {
-	p.CustomPanelPage.NavigationGroup(group)
+// NavGroup places this page under a named group in the sidebar.
+func (p *LayoutManagerPage) NavGroup(group string) *LayoutManagerPage {
+	p.CustomPanelPage.NavGroup(group)
 	return p
 }
 
-// NavigationIcon sets the sidebar icon for this page.
-func (p *LayoutManagerPage) NavigationIcon(ic *icon.Icon) *LayoutManagerPage {
-	p.CustomPanelPage.NavigationIcon(ic)
+// NavIcon sets the sidebar icon for this page.
+func (p *LayoutManagerPage) NavIcon(ic *icon.Icon) *LayoutManagerPage {
+	p.CustomPanelPage.NavIcon(ic)
 	return p
 }
 
-// NavigationOrder pins the page's sidebar position (lower = earlier).
-func (p *LayoutManagerPage) NavigationOrder(order int) *LayoutManagerPage {
-	p.CustomPanelPage.NavigationOrder(order)
+// NavOrder pins the page's sidebar position (lower = earlier).
+func (p *LayoutManagerPage) NavOrder(order int) *LayoutManagerPage {
+	p.CustomPanelPage.NavOrder(order)
 	return p
 }
 
-// NavigationHidden hides this page from the sidebar (still reachable + shown
-// in the sub-page tab strip).
-func (p *LayoutManagerPage) NavigationHidden() *LayoutManagerPage {
-	p.CustomPanelPage.NavigationHidden()
+// NavHidden hides this page from the sidebar (still reachable + shown in the
+// sub-page tab strip); NavHidden(false) shows it again.
+func (p *LayoutManagerPage) NavHidden(on ...bool) *LayoutManagerPage {
+	p.CustomPanelPage.NavHidden(on...)
 	return p
 }
 
-// PageTabHidden hides this page from the page-tab strip while leaving it in the
-// sidebar.
-func (p *LayoutManagerPage) PageTabHidden() *LayoutManagerPage {
-	p.CustomPanelPage.PageTabHidden()
+// TabHidden hides this page from the page-tab strip while leaving it in the
+// sidebar; TabHidden(false) shows it again.
+func (p *LayoutManagerPage) TabHidden(on ...bool) *LayoutManagerPage {
+	p.CustomPanelPage.TabHidden(on...)
 	return p
 }
 
@@ -452,7 +452,7 @@ func (p *LayoutManagerPage) GetComponent(w http.ResponseWriter, r *http.Request)
 	return cppCopy.GetComponent(w, r)
 }
 
-func (p *LayoutManagerPage) cloneCustomPanelPage() panel.CustomPanelPage {
+func (p *LayoutManagerPage) cloneCustomPanelPage() pages.CustomPanelPage {
 	page := *p.CustomPanelPage
 	resolvable := *p.CustomPanelPage.PanelPageResolvable
 	page.PanelPageResolvable = &resolvable

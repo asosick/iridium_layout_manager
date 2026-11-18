@@ -4,9 +4,9 @@ go 1.27.2
 
 require (
 	github.com/a-h/templ v0.3.1020
+	github.com/goiridium/iridium v0.2.0-alpha.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/sessions v1.4.0
-	github.com/iridiumgo/iridium v0.1.0-alpha.23
 	github.com/iridiumgo/iridium-icons v1.0.9
 )
 

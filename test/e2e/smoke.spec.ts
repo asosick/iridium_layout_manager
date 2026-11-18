@@ -3,7 +3,7 @@ import { LayoutPage } from './support/layout';
 
 /**
  * The page works inside a real Iridium panel: full shell, Alpine's CSP build,
- * htmx, the plugin's assets, under the policy SecurityHeadersMiddleware sends.
+ * htmx, the plugin's assets, under the policy SecurityHeadersCSP sends.
  * Every spec also fails on page errors, console errors and CSP violations
  * (fixtures.ts); these tests make the basics explicit.
  */

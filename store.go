@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/goiridium/iridium/bootstrap/auth"
+	"github.com/goiridium/iridium/config"
+	"github.com/goiridium/iridium/core/auth/user"
+	"github.com/goiridium/iridium/core/context/ctxBase"
+	"github.com/goiridium/iridium/core/context/ctxkeys"
 	"github.com/gorilla/sessions"
-	"github.com/iridiumgo/iridium/bootstrap/auth"
-	"github.com/iridiumgo/iridium/config"
-	"github.com/iridiumgo/iridium/core/auth/user"
-	ircontext "github.com/iridiumgo/iridium/core/context"
-	"github.com/iridiumgo/iridium/core/context/ctxkeys"
 )
 
 // LoadHook fetches the committed LayoutState for the current request's user,
@@ -95,7 +95,7 @@ func requestUser(w http.ResponseWriter, r *http.Request) user.IUser {
 	if auth.Store == nil || config.Config == nil {
 		return nil
 	}
-	ctx := ircontext.NewContext(r, w)
+	ctx := ctxBase.NewContext(r, w)
 	if u, ok := ctx.User(); ok {
 		return u
 	}

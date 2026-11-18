@@ -28,15 +28,14 @@ import (
 	"testing/fstest"
 
 	"github.com/a-h/templ"
-	iridiumconfig "github.com/iridiumgo/iridium/config"
-	"github.com/iridiumgo/iridium/core/asset"
-	"github.com/iridiumgo/iridium/core/auth/user"
-	"github.com/iridiumgo/iridium/core/context/ctxkeys"
-	"github.com/iridiumgo/iridium/core/iridium"
-	pagepanel "github.com/iridiumgo/iridium/core/page/panel"
-	"github.com/iridiumgo/iridium/core/page/panel/IPanel"
-	"github.com/iridiumgo/iridium/core/panel"
-	"github.com/iridiumgo/iridium/network/middleware"
+	iridiumconfig "github.com/goiridium/iridium/config"
+	"github.com/goiridium/iridium/core/asset"
+	"github.com/goiridium/iridium/core/auth/user"
+	"github.com/goiridium/iridium/core/context/ctxkeys"
+	"github.com/goiridium/iridium/core/iridium"
+	"github.com/goiridium/iridium/core/page/pages"
+	"github.com/goiridium/iridium/core/panel"
+	"github.com/goiridium/iridium/network/middleware"
 
 	layoutmgr "github.com/asosick/iridium_layout_manager"
 )
@@ -100,16 +99,16 @@ func New() *App {
 		sourceKeys: slices.Clone(defaultSourceKeys),
 	}
 
-	cfg := iridiumconfig.NewIridiumConfig()
+	cfg := iridiumconfig.New()
 	cfg.AppName = "Layout Manager E2E"
 	// Test-only keys - never use in production.
 	cfg.AppKey = "dGVzdC1hcHAta2V5LWZvci11bml0LXRlc3Rpbmctb25seS10ZXN0aW5n"
 	cfg.AppEncryptionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-	cfg.AppEnv = "test"
+	cfg.AppEnv = iridiumconfig.EnvTest
 	cfg.CSPMode = true
 	// Errors only: the plugin logs a failed save at error level, which is
 	// worth seeing next to a failing test; everything else is noise.
-	cfg.InternalLogLevel = "error"
+	cfg.InternalLogLevel = iridiumconfig.LogLevelError
 
 	// Without a favicon the browser's /favicon.ico request logs a 404.
 	asset.Favicon(fstest.MapFS{"favicon.svg": &fstest.MapFile{Data: []byte(
@@ -117,7 +116,7 @@ func New() *App {
 	)}}, "favicon.svg")
 	asset.Register(asset.CSS("e2e-fixtures", staticFS, "static/fixtures.css").Package("e2e"))
 
-	iridium.NewIridiumApp(cfg).
+	iridium.NewApp(cfg).
 		RegisterPanels(a.panel()).
 		Initialize(a.Mux)
 
@@ -131,7 +130,7 @@ func (a *App) panel() *panel.Panel {
 
 	// Three pages each, as before pages could be added, except where a page
 	// tests the number of pages itself.
-	pages := []*layoutmgr.LayoutManagerPage{
+	layoutPages := []*layoutmgr.LayoutManagerPage{
 		layoutmgr.NewLayoutManagerPage("Default", PageDefault).Blocks(both()...).GridColumns(3).LayoutCount(3),
 		layoutmgr.NewLayoutManagerPage("Single", PageSingle).Blocks(simple()...).GridColumns(3).LayoutCount(1),
 		layoutmgr.NewLayoutManagerPage("Narrow", PageNarrow).Blocks(simple()...).GridColumns(1).LayoutCount(3),
@@ -151,25 +150,25 @@ func (a *App) panel() *panel.Panel {
 		layoutmgr.NewLayoutManagerPage("Compact", PageCompact).Blocks(simple()...).GridColumns(3).LayoutCount(3).
 			CompactVerticalPadding(),
 	}
-	items := make([]IPanel.IPanelItem, 0, len(pages)+1)
-	for _, p := range pages {
+	items := make([]pages.IPanelItem, 0, len(layoutPages)+1)
+	for _, p := range layoutPages {
 		a.pages[strings.TrimPrefix(p.SlugStr, "/")] = p
 		items = append(items, p)
 	}
-	items = append(items, pagepanel.NewCustomPanelPage("Elsewhere", PageElsewhere).
+	items = append(items, pages.NewCustomPanelPage("Elsewhere", PageElsewhere).
 		Content(templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
 			_, err := io.WriteString(w, `<p data-e2e-elsewhere>Nothing to arrange here.</p>`)
 			return err
 		})))
 
-	return panel.NewPanel(a.Mux).
+	return panel.New(a.Mux).
 		ID("e2e").
 		Path(strings.TrimPrefix(PanelPath, "/")).
 		NavStyle(panel.NavLeft).
 		PanelItems(items...).
 		Middleware(
-			middleware.SecurityHeadersMiddleware,
-			middleware.CSRFMiddleware,
+			middleware.SecurityHeadersCSP,
+			middleware.CSRF,
 			signedIn,
 		).
 		PanelMiddleware(

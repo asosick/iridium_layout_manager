@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/a-h/templ"
-	"github.com/iridiumgo/iridium/core/context/ctxPanel"
-	"github.com/iridiumgo/iridium/core/enum"
+	"github.com/goiridium/iridium/core/context/ctxPanel"
+	"github.com/goiridium/iridium/core/enum"
 )
 
 func TestNativePageExtensionBuildersRemainFluent(t *testing.T) {

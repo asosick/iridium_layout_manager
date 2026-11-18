@@ -3,7 +3,7 @@ package layoutmgr
 import (
 	"embed"
 
-	"github.com/iridiumgo/iridium/core/asset"
+	"github.com/goiridium/iridium/core/asset"
 )
 
 //go:embed static

@@ -12,22 +12,22 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/goiridium/iridium/core/collections"
+	"github.com/goiridium/iridium/core/context/ctxForm"
+	"github.com/goiridium/iridium/core/context/ctxTable"
+	"github.com/goiridium/iridium/core/context/ctxWidget"
+	"github.com/goiridium/iridium/core/context/ctxkeys"
+	"github.com/goiridium/iridium/core/driver/slicedriver"
+	"github.com/goiridium/iridium/core/field/fields"
+	"github.com/goiridium/iridium/core/form"
+	"github.com/goiridium/iridium/core/table"
+	"github.com/goiridium/iridium/core/table/column/columns"
+	"github.com/goiridium/iridium/core/table/filters"
+	"github.com/goiridium/iridium/core/table/tableactions"
+	"github.com/goiridium/iridium/core/widget/chart"
+	"github.com/goiridium/iridium/core/widget/stats"
+	"github.com/goiridium/iridium/core/widget/tablewidget"
 	icons "github.com/iridiumgo/iridium-icons/icon/icons"
-	"github.com/iridiumgo/iridium/core/collections"
-	"github.com/iridiumgo/iridium/core/context/ctxForm"
-	"github.com/iridiumgo/iridium/core/context/ctxTable"
-	"github.com/iridiumgo/iridium/core/context/ctxWidget"
-	"github.com/iridiumgo/iridium/core/context/ctxkeys"
-	"github.com/iridiumgo/iridium/core/driver/slicedriver"
-	"github.com/iridiumgo/iridium/core/field/components"
-	"github.com/iridiumgo/iridium/core/form"
-	"github.com/iridiumgo/iridium/core/table"
-	tableAction "github.com/iridiumgo/iridium/core/table/action"
-	tableComponents "github.com/iridiumgo/iridium/core/table/column/components"
-	tableFilter "github.com/iridiumgo/iridium/core/table/filter"
-	"github.com/iridiumgo/iridium/core/widget/chart"
-	"github.com/iridiumgo/iridium/core/widget/stats"
-	tablewidget "github.com/iridiumgo/iridium/core/widget/table"
 
 	layoutmgr "github.com/asosick/iridium_layout_manager"
 )
@@ -160,7 +160,7 @@ func seedOrders() []Order {
 // when it registers the widget's routes.
 func (a *App) widgetBlocks() []layoutmgr.BlockSpec {
 	orders := seedOrders()
-	driver := slicedriver.NewSliceDriver(&orders, nil).
+	driver := slicedriver.New(&orders, nil).
 		WithGlobalQuery(func(_ func(i int) *Order, n int) []int {
 			a.renders.inc("table-query")
 			all := make([]int, n)
@@ -169,16 +169,16 @@ func (a *App) widgetBlocks() []layoutmgr.BlockSpec {
 			}
 			return all
 		})
-	orderTable := table.NewTable[Order](driver).
+	orderTable := table.New[Order](driver).
 		Title("Orders").
-		PerPage([]uint{3}).
+		PerPage(3).
 		Columns(
-			tableComponents.NewTextColumnResolvable[Order]("Number").Sortable().Searchable(),
-			tableComponents.NewTextColumnResolvable[Order]("Client").Sortable().Searchable(),
-			tableComponents.NewTextColumnResolvable[Order]("Status"),
+			columns.NewText[Order]("Number").Sortable().Searchable(),
+			columns.NewText[Order]("Client").Sortable().Searchable(),
+			columns.NewText[Order]("Status"),
 		).
 		Filters(
-			tableFilter.NewSelectFilterResolvable[Order]("Status").
+			filters.NewSelect[Order]("Status").
 				Options([]collections.Pair[string, string]{
 					{Key: "Paid", Value: "Paid"},
 					{Key: "Pending", Value: "Pending"},
@@ -186,14 +186,14 @@ func (a *App) widgetBlocks() []layoutmgr.BlockSpec {
 				}),
 		).
 		HeaderActions(
-			tableAction.NewHeaderActionResolvable[Order]("add-note").
+			tableactions.NewHeaderAction[Order]("add-note").
 				Label("Add note").
-				ModalForm(form.NewForm[Order](driver).
-					Schema(components.NewInputResolvable[Order, string]("Notes")).
+				ModalForm(form.New[Order](driver).
+					Schema(fields.NewInput[Order]("Notes")).
 					Action(func(*ctxForm.FormSubmit[Order]) error { return nil })),
 		).
 		RowActions(
-			tableAction.NewRowActionResolvable[Order]("inspect", nil).
+			tableactions.NewRowAction[Order]("inspect").
 				Label("Inspect").
 				Callback(func(ctx *ctxTable.TableRowAction[Order]) error {
 					ctx.GetWriter().Header().Set("X-E2E-Inspected", ctx.Model.ID)
@@ -201,13 +201,13 @@ func (a *App) widgetBlocks() []layoutmgr.BlockSpec {
 				}),
 		)
 
-	salesStats := stats.NewStatsWidgetResolvable("sales-stats").
+	salesStats := stats.New("sales-stats").
 		Stats(
-			stats.NewStatResolvable("revenue").Title("Revenue").Description("12840").Icon(icons.DollarSign),
-			stats.NewStatResolvable("orders").Title("Orders").Description("148").Icon(icons.ShoppingBag),
+			stats.NewStat("revenue").Title("Revenue").Description("12840").Icon(icons.DollarSign),
+			stats.NewStat("orders").Title("Orders").Description("148").Icon(icons.ShoppingBag),
 		)
 
-	revenueChart := chart.NewChartWidgetResolvable[*ctxWidget.Widget]("revenue-chart").
+	revenueChart := chart.New[*ctxWidget.Widget]("revenue-chart").
 		Label("Revenue").
 		ChartType("bar").
 		ChartData(map[string]any{
@@ -217,7 +217,7 @@ func (a *App) widgetBlocks() []layoutmgr.BlockSpec {
 		})
 
 	return []layoutmgr.BlockSpec{
-		layoutmgr.WidgetBlock("table", "Orders table", tablewidget.NewTableWidgetResolvable[Order]("orders", orderTable)),
+		layoutmgr.WidgetBlock("table", "Orders table", tablewidget.New[Order]("orders", orderTable)),
 		layoutmgr.WidgetBlock("chart", "Revenue chart", revenueChart),
 		layoutmgr.WidgetBlock("stats", "Sales stats", salesStats),
 	}

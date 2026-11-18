@@ -6,18 +6,18 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/goiridium/iridium/config"
+	"github.com/goiridium/iridium/core/context/ctxWidget"
+	"github.com/goiridium/iridium/core/driver/slicedriver"
+	"github.com/goiridium/iridium/core/iridium"
+	"github.com/goiridium/iridium/core/panel"
+	"github.com/goiridium/iridium/core/table"
+	"github.com/goiridium/iridium/core/table/column/columns"
+	"github.com/goiridium/iridium/core/widget/chart"
+	"github.com/goiridium/iridium/core/widget/stats"
+	tablewidget "github.com/goiridium/iridium/core/widget/tablewidget"
+	"github.com/goiridium/iridium/network/middleware"
 	icons "github.com/iridiumgo/iridium-icons/icon/icons"
-	"github.com/iridiumgo/iridium/config"
-	"github.com/iridiumgo/iridium/core/context/ctxWidget"
-	"github.com/iridiumgo/iridium/core/driver/slicedriver"
-	"github.com/iridiumgo/iridium/core/iridium"
-	"github.com/iridiumgo/iridium/core/panel"
-	"github.com/iridiumgo/iridium/core/table"
-	"github.com/iridiumgo/iridium/core/table/column/components"
-	"github.com/iridiumgo/iridium/core/widget/chart"
-	"github.com/iridiumgo/iridium/core/widget/stats"
-	tablewidget "github.com/iridiumgo/iridium/core/widget/table"
-	"github.com/iridiumgo/iridium/network/middleware"
 
 	layoutmgr "github.com/asosick/iridium_layout_manager"
 )
@@ -34,7 +34,7 @@ func (o order) GetID() string { return o.ID }
 
 func main() {
 	mux := http.NewServeMux()
-	app := iridium.NewIridiumApp(demoConfig()).RegisterPanels(demoPanel(mux)).Initialize(mux)
+	app := iridium.NewApp(demoConfig()).RegisterPanels(demoPanel(mux)).Initialize(mux)
 
 	log.Printf("layout-manager demo: http://127.0.0.1:%s/admin/dashboard", app.Config.AppPort)
 	if err := app.Serve(mux); err != nil {
@@ -43,7 +43,7 @@ func main() {
 }
 
 func demoConfig() *config.IridiumConfig {
-	cfg := config.NewIridiumConfig()
+	cfg := config.New()
 	cfg.AppName = "Iridium Layout Manager Demo"
 	cfg.AppHost = "127.0.0.1"
 	cfg.AppPort = "8088"
@@ -52,9 +52,9 @@ func demoConfig() *config.IridiumConfig {
 	}
 	cfg.AppKey = "ZGVtby1hcHAtc2VjcmV0LWtleS1jaGFuZ2UtbWUtbm93"
 	cfg.AppEncryptionKey = "ZGVtby1lbmNyeXB0aW9uLWtleS1jaGFuZ2UtbWUtMzI="
-	cfg.AppEnv = "development"
+	cfg.AppEnv = config.EnvDevelopment
 	// Run the way production panels do: Alpine's CSP build under a strict
-	// Content-Security-Policy (sent by SecurityHeadersMiddleware below).
+	// Content-Security-Policy (sent by SecurityHeadersCSP below).
 	cfg.CSPMode = true
 	return cfg
 }
@@ -64,14 +64,14 @@ func demoConfig() *config.IridiumConfig {
 // is what loads Alpine, htmx and the plugin's script and stylesheet; without
 // it /admin/dashboard answers a bare fragment and nothing is interactive.
 func demoPanel(mux *http.ServeMux) *panel.Panel {
-	return panel.NewPanel(mux).
+	return panel.New(mux).
 		ID("layout-demo").
 		Path("admin").
 		NavStyle(panel.NavLeft).
 		PanelItems(dashboardPage()).
 		Middleware(
-			middleware.SecurityHeadersMiddleware,
-			middleware.CSRFMiddleware,
+			middleware.SecurityHeadersCSP,
+			middleware.CSRF,
 		).
 		PanelMiddleware(
 			middleware.Compression,
@@ -88,26 +88,26 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 		{ID: "4", Number: "#1045", Client: "Harbour Supply Co.", Total: "$3,240", Status: "Paid"},
 		{ID: "5", Number: "#1044", Client: "Juniper House", Total: "$1,420", Status: "Refunded"},
 	}
-	orderDriver := slicedriver.NewSliceDriver(&orders, nil)
-	orderTable := table.NewTable[order](orderDriver).
+	orderDriver := slicedriver.New(&orders, nil)
+	orderTable := table.New[order](orderDriver).
 		Title("Recent orders").
 		TitleDescription("The latest activity across your storefront").
-		PerPage([]uint{5}).
+		PerPage(5).
 		Columns(
-			components.NewTextColumnResolvable[order]("Number").Sortable(),
-			components.NewTextColumnResolvable[order]("Client").Sortable(),
-			components.NewTextColumnResolvable[order]("Total").Sortable(),
-			components.NewTextColumnResolvable[order]("Status"),
+			columns.NewText[order]("Number").Sortable(),
+			columns.NewText[order]("Client").Sortable(),
+			columns.NewText[order]("Total").Sortable(),
+			columns.NewText[order]("Status"),
 		)
 
-	salesStats := stats.NewStatsWidgetResolvable("sales-stats").
+	salesStats := stats.New("sales-stats").
 		Stats(
-			stats.NewStatResolvable("revenue").Title("Revenue").Description("$12,840").Icon(icons.DollarSign),
-			stats.NewStatResolvable("orders").Title("Orders").Description("148").Icon(icons.ShoppingBag),
-			stats.NewStatResolvable("customers").Title("Customers").Description("2,840").Icon(icons.Users),
+			stats.NewStat("revenue").Title("Revenue").Description("$12,840").Icon(icons.DollarSign),
+			stats.NewStat("orders").Title("Orders").Description("148").Icon(icons.ShoppingBag),
+			stats.NewStat("customers").Title("Customers").Description("2,840").Icon(icons.Users),
 		)
 
-	revenueChart := chart.NewChartWidgetResolvable[*ctxWidget.Widget]("revenue-chart").
+	revenueChart := chart.New[*ctxWidget.Widget]("revenue-chart").
 		Label("Revenue overview").
 		ChartType("area").
 		ChartData(map[string]any{
@@ -115,7 +115,7 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 			"series":     []map[string]any{{"name": "Revenue", "data": []int{1480, 1920, 1760, 2480, 2240, 3160, 2840}}},
 		})
 
-	ordersWidget := tablewidget.NewTableWidgetResolvable[order]("recent-orders", orderTable)
+	ordersWidget := tablewidget.New[order]("recent-orders", orderTable)
 
 	return layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
 		Heading("Good morning, Alex").

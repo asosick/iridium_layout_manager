@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"github.com/a-h/templ"
-	"github.com/iridiumgo/iridium/core/context/ctxkeys"
+	"github.com/goiridium/iridium/core/context/ctxkeys"
 
 	"github.com/asosick/iridium_layout_manager/views"
 )

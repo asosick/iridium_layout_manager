@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/a-h/templ"
-	"github.com/iridiumgo/iridium/core/auth/user"
-	"github.com/iridiumgo/iridium/core/context/ctxkeys"
+	"github.com/goiridium/iridium/core/auth/user"
+	"github.com/goiridium/iridium/core/context/ctxkeys"
 )
 
 type testUser struct{ id uint }

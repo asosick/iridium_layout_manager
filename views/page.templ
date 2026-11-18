@@ -12,7 +12,7 @@ import (
 type PageData struct {
     GridColumns    int
     Blocks         []BlockData       // currently-placed blocks
-    AddOptions     []BlockOption     // dropdown options
+    AddOptions     []BlockOption     // the block gallery's cards
     ShowLockButton bool
     AllowReorder   bool
     AllowResize    bool
@@ -45,7 +45,8 @@ type PageData struct {
 // PageURLs lists the htmx endpoints the page uses. Pre-computed once per
 // render so the template doesn't have to string-concat them.
 type PageURLs struct {
-    Add     string
+    Add     string // append ?type=...&layout=N, and &at=I to insert
+    Preview string // append ?type=... — one block type, for the gallery
     Remove  string // append ?id=...
     Resize  string // append ?id=...&delta=±1 (or ?cols=N)
     Move    string
@@ -62,10 +63,11 @@ type PageURLs struct {
 // PageNameLength is the longest page name the server keeps, in characters.
 const PageNameLength = 40
 
-// BlockOption is one entry in the "Add" dropdown.
+// BlockOption is one card in the block gallery.
 type BlockOption struct {
-    Key   string
-    Label string
+    Key        string
+    Label      string
+    PreviewURL string // renders the block for the card's preview
 }
 
 // BlockData is one placed block, with its rendering Component pre-resolved.
@@ -107,6 +109,9 @@ templ LayoutManagerContent(d *PageData) {
     <div class="lm-grid-wrap">
         @Grid(d)
     </div>
+    if len(d.AddOptions) > 0 {
+        @Gallery(d)
+    }
 }
 
 // PageAttributes binds layout-manager state to Iridium's native page root.
@@ -114,7 +119,7 @@ func PageAttributes(d *PageData) templ.Attributes {
     return templ.Attributes{
         "data-lm-page":            "true",
         "x-data":                  "layout_manager",
-        ":class":                  "editMode ? 'lm-editing' : ''",
+        ":class":                  "rootClass()",
         "data-lm-select-url":      d.URLs.Select,
         "data-lm-add-url":         d.URLs.Add,
         "data-lm-save-url":        d.URLs.Save,
@@ -151,17 +156,19 @@ templ Toolbar(d *PageData) {
         <div class="lm-controls">
             <div x-show="editMode" x-cloak class="lm-controls">
                 if len(d.AddOptions) > 0 {
-                    <form class="lm-controls" @submit.prevent="addBlock">
-                        <select name="type" data-lm-type-select x-model="selectedType" class="lm-select" aria-label="Block to add">
-                            for _, opt := range d.AddOptions {
-                                <option value={ opt.Key }>{ opt.Label }</option>
-                            }
-                        </select>
-                        <button type="submit" class="ir-btn-primary lm-icon-btn">
-                            @icons.Plus.Component()
-                            <span>Add</span>
-                        </button>
-                    </form>
+                    // Opens the block gallery (see Gallery).
+                    <button
+                        type="button"
+                        class="ir-btn-primary lm-icon-btn lm-gallery-toggle"
+                        data-lm-gallery-toggle
+                        :class="galleryToggleClass()"
+                        aria-controls="lm-gallery"
+                        :aria-expanded="galleryOpen"
+                        @click="toggleGallery"
+                    >
+                        @icons.Plus.Component()
+                        <span>Add block</span>
+                    </button>
                 }
                 <button type="button" class="ir-btn-outline lm-icon-btn" @click="reset">
                     @icons.RotateCcw.Component()

@@ -76,8 +76,8 @@
     white-space: nowrap;
 }
 
-/* The field that renames a page, in place of its button; it looks like the
-   "Add" dropdown. */
+/* The field that renames a page, in place of its button; it looks like an
+   Iridium input. */
 .lm-page-name {
     width: 10rem;
     height: 2rem;
@@ -167,21 +167,13 @@
     height: 0.75rem;
 }
 
-/* The "Add" dropdown — match iridium's input look. Reused tokens from the
-   host theme so dark mode just works. */
-.lm-select {
-    padding: 0.375rem 0.5rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius, 0.375rem);
-    background: var(--color-background);
-    color: var(--color-foreground);
-    font-size: 0.875rem;
-    min-width: 12rem;
+/* "Add block" opens the gallery; its plus turns into a cross while open. */
+.lm-gallery-toggle svg {
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.lm-select:focus-visible {
-    outline: 2px solid var(--color-ring, var(--color-primary));
-    outline-offset: 1px;
+.lm-gallery-toggle.is-active svg {
+    transform: rotate(45deg);
 }
 
 /* The container the grid's responsive columns query. */
@@ -386,8 +378,9 @@
     user-select: none;
 }
 
-/* Empty state when the page has no blocks yet. */
-.lm-grid:has(> [data-lm-block]) > .lm-empty {
+/* Empty state when the page has no blocks yet (a block being dragged in
+   counts). */
+.lm-grid:has(> [data-lm-block], > .lm-drop-slot) > .lm-empty {
     display: none;
 }
 
@@ -405,4 +398,662 @@
 .lm-block.sortable-ghost,
 .lm-block.sortable-chosen {
     opacity: 0.4;
+}
+
+/* ---------------------------------------------------------------------------
+   The block gallery: a sheet at the bottom of the window (teleported to
+   <body>) with a card per block, each a live preview of the block scaled
+   down whole.
+   --------------------------------------------------------------------------- */
+
+.lm-gallery {
+    --lm-card-h: 9.25rem;
+    --lm-strip: 3.25rem;
+    --lm-sheet-ease: cubic-bezier(0.32, 0.72, 0, 1);
+    position: fixed;
+    left: var(--lm-gallery-left, 0.75rem);
+    right: var(--lm-gallery-right, 0.75rem);
+    bottom: 0;
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-border);
+    border-bottom: 0;
+    border-radius: 1rem 1rem 0 0;
+    background: color-mix(in srgb, var(--color-background) 84%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    backdrop-filter: blur(20px) saturate(1.5);
+    box-shadow:
+        0 -1px 0 color-mix(in srgb, var(--color-foreground) 4%, transparent),
+        0 -12px 32px -16px color-mix(in srgb, black 24%, transparent);
+    color: var(--color-foreground);
+    transform: translateY(calc(100% + 2rem));
+    visibility: hidden;
+    transition: transform 0.36s var(--lm-sheet-ease), background-color 0.2s ease, visibility 0s linear 0.36s;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+.lm-gallery.is-open {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.36s var(--lm-sheet-ease), background-color 0.2s ease, visibility 0s;
+}
+
+/* A card is being dragged: the sheet steps down to a strip, out of the way. */
+.lm-gallery.is-open.is-dragging {
+    transform: translateY(calc(100% - var(--lm-strip)));
+}
+
+/* ...and the pointer is back over the strip: letting go puts nothing down. */
+.lm-gallery.is-dragging.is-over {
+    background: color-mix(in srgb, var(--color-muted) 92%, transparent);
+}
+
+.lm-gallery-grabber {
+    flex: none;
+    width: 2.25rem;
+    height: 0.3125rem;
+    margin: 0.5rem auto 0;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--color-muted-foreground) 35%, transparent);
+}
+
+.lm-gallery-head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.25rem 0.75rem 0.5rem 1.25rem;
+}
+
+.lm-gallery-grabber,
+.lm-gallery-head {
+    transition: opacity 0.2s ease;
+}
+
+.lm-gallery.is-dragging .lm-gallery-grabber,
+.lm-gallery.is-dragging .lm-gallery-head {
+    opacity: 0;
+}
+
+.lm-gallery-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.lm-gallery-title h2 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+}
+
+.lm-gallery-title p {
+    margin: 0.0625rem 0 0;
+    overflow: hidden;
+    color: var(--color-muted-foreground);
+    font-size: 0.75rem;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lm-gallery-search {
+    flex: 0 1 19rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 9999px;
+    background: var(--color-background);
+    color: var(--color-muted-foreground);
+    cursor: text;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lm-gallery-search:focus-within {
+    border-color: color-mix(in srgb, var(--color-primary) 60%, var(--color-border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.lm-gallery-search svg {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+}
+
+.lm-gallery-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-foreground);
+    font-size: 0.875rem;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.lm-gallery-search input::placeholder {
+    color: var(--color-muted-foreground);
+}
+
+.lm-gallery-count {
+    flex: none;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.lm-gallery-close {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--color-muted-foreground);
+    cursor: pointer;
+}
+
+.lm-gallery-close:hover {
+    background: var(--color-muted);
+    color: var(--color-foreground);
+}
+
+.lm-gallery-close:focus-visible {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 1px;
+}
+
+.lm-gallery-close svg {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
+/* The strip a dragging card leaves showing. */
+.lm-gallery-drag-hint {
+    position: absolute;
+    inset: 0 0 auto;
+    height: var(--lm-strip);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-muted-foreground);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.lm-gallery.is-dragging .lm-gallery-drag-hint {
+    opacity: 1;
+}
+
+.lm-gallery-drag-place,
+.lm-gallery-drag-cancel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.lm-gallery-drag-hint svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.lm-gallery-drag-cancel,
+.lm-gallery.is-over .lm-gallery-drag-place {
+    display: none;
+}
+
+.lm-gallery.is-over .lm-gallery-drag-cancel {
+    display: inline-flex;
+    color: var(--color-foreground);
+}
+
+.lm-gallery-body {
+    position: relative;
+    min-height: 0;
+}
+
+/* One row of cards that scrolls sideways; its ends fade while there is
+   more to scroll to. */
+.lm-gallery-row {
+    --lm-fade-start: 0px;
+    --lm-fade-end: 0px;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.875rem;
+    min-height: calc(var(--lm-card-h) + 2.875rem);
+    margin: 0;
+    padding: 0.5rem 1.25rem 1.125rem;
+    list-style: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-muted-foreground) 35%, transparent) transparent;
+    -webkit-mask-image: linear-gradient(to right, transparent, black var(--lm-fade-start), black calc(100% - var(--lm-fade-end)), transparent);
+    mask-image: linear-gradient(to right, transparent, black var(--lm-fade-start), black calc(100% - var(--lm-fade-end)), transparent);
+}
+
+.lm-gallery-row.lm-fade-start {
+    --lm-fade-start: 2.5rem;
+}
+
+.lm-gallery-row.lm-fade-end {
+    --lm-fade-end: 2.5rem;
+}
+
+@media (pointer: coarse) {
+    .lm-gallery-row {
+        scroll-snap-type: x proximity;
+        scroll-padding-inline: 1.25rem;
+    }
+
+    .lm-card {
+        scroll-snap-align: start;
+    }
+}
+
+.lm-card {
+    position: relative;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 12.5rem;
+    transition: width 0.32s var(--lm-sheet-ease, ease), opacity 0.2s ease;
+}
+
+.lm-card[hidden] {
+    display: none;
+}
+
+/* The preview: the block, laid out as wide as a placed block, scaled down on
+   a dotted canvas. */
+.lm-card-preview {
+    position: relative;
+    height: var(--lm-card-h, 9.25rem);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+    background-color: var(--color-muted);
+    background-image: radial-gradient(color-mix(in srgb, var(--color-muted-foreground) 24%, transparent) 1px, transparent 1px);
+    background-size: 0.75rem 0.75rem;
+    transition: transform 0.22s var(--lm-sheet-ease, ease), box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.lm-card-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    border-radius: var(--radius, 0.5rem);
+    background: var(--color-background);
+    color: var(--color-foreground);
+    box-shadow: 0 1px 2px color-mix(in srgb, black 8%, transparent), 0 10px 30px -10px color-mix(in srgb, black 30%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.lm-card[data-lm-preview="ready"] .lm-card-stage {
+    opacity: 1;
+}
+
+/* A block taller than the card is cut off with a fade. */
+.lm-card-clipped .lm-card-preview::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    height: 2.25rem;
+    background: linear-gradient(to bottom, transparent, var(--color-muted));
+    pointer-events: none;
+}
+
+/* Shown until the preview arrives. */
+.lm-card-skeleton {
+    position: absolute;
+    inset: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    transition: opacity 0.25s ease;
+}
+
+.lm-card[data-lm-preview="ready"] .lm-card-skeleton {
+    opacity: 0;
+}
+
+/* No preview came: the card says so, and still adds its block. */
+.lm-card[data-lm-preview="failed"] .lm-card-skeleton {
+    display: none;
+}
+
+.lm-card[data-lm-preview="failed"] .lm-card-preview::before {
+    content: "No preview";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-muted-foreground);
+    font-size: 0.75rem;
+}
+
+.lm-card-skeleton span {
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--color-muted-foreground) 20%, transparent);
+    animation: lm-shimmer 1.4s ease-in-out infinite;
+}
+
+.lm-card-skeleton span:nth-child(1) {
+    width: 45%;
+    height: 0.625rem;
+}
+
+.lm-card-skeleton span:nth-child(2) {
+    width: 80%;
+    animation-delay: 0.1s;
+}
+
+.lm-card-skeleton span:nth-child(3) {
+    flex: 1 1 auto;
+    border-radius: 0.5rem;
+    animation-delay: 0.2s;
+}
+
+@keyframes lm-shimmer {
+    50% {
+        opacity: 0.45;
+    }
+}
+
+.lm-card-label {
+    overflow: hidden;
+    padding: 0 0.125rem;
+    color: var(--color-foreground);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lm-card-label mark {
+    border-radius: 0.1875rem;
+    background: color-mix(in srgb, var(--color-primary) 24%, transparent);
+    color: inherit;
+}
+
+/* The whole card is one button: click to add, drag to place. */
+.lm-card-hit {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0.75rem;
+    background: transparent;
+    cursor: grab;
+    touch-action: pan-x;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.lm-card-hit:focus-visible {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 3px;
+}
+
+.lm-card:hover .lm-card-preview,
+.lm-card:has(> .lm-card-hit:focus-visible) .lm-card-preview {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+    box-shadow: 0 14px 28px -14px color-mix(in srgb, black 50%, transparent);
+}
+
+.lm-card:active .lm-card-preview {
+    transform: translateY(-1px) scale(0.985);
+}
+
+/* The card whose ghost is out on the page. */
+.lm-card.is-lifted {
+    opacity: 0.35;
+}
+
+/* A click adds: the card gives a little. */
+.lm-card.is-adding .lm-card-preview {
+    animation: lm-card-press 0.36s var(--lm-sheet-ease, ease);
+}
+
+@keyframes lm-card-press {
+    40% {
+        transform: scale(0.95);
+    }
+}
+
+.lm-gallery-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0;
+    color: var(--color-muted-foreground);
+    font-size: 0.875rem;
+    pointer-events: none;
+}
+
+.lm-gallery-empty svg {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
+/* Below the grid, room to scroll the last blocks up above the open sheet. */
+.lm-grid-wrap {
+    transition: padding-bottom 0.36s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.lm-gallery-open .lm-grid-wrap {
+    padding-bottom: calc(var(--lm-gallery-space, 16rem) + 1.5rem);
+}
+
+.lm-gallery-open .lm-block {
+    scroll-margin-bottom: calc(var(--lm-gallery-space, 16rem) + 1rem);
+}
+
+/* Where a dragged card's block will land: the block, faded, at the size it
+   will be placed, under its name. */
+.lm-drop-slot {
+    --lm-slot-chrome: 2.125rem;
+    position: relative;
+    z-index: 1;
+    grid-column: span 1 / span 1;
+    min-height: 5rem;
+    overflow: hidden;
+    border: 2px dashed color-mix(in srgb, var(--color-primary) 70%, transparent);
+    border-radius: var(--radius, 0.5rem);
+    background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+}
+
+.lm-drop-slot-preview {
+    position: absolute;
+    top: calc(var(--lm-slot-chrome) - 2px);
+    left: -2px;
+    transform-origin: 0 0;
+    opacity: 0.5;
+    filter: saturate(0.6);
+    pointer-events: none;
+}
+
+.lm-drop-slot-label {
+    position: absolute;
+    top: 0.375rem;
+    left: 0.375rem;
+    z-index: 1;
+    max-width: calc(100% - 0.75rem);
+    overflow: hidden;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--color-primary) 60%, transparent);
+}
+
+/* Dropped: waiting for the server's block. */
+.lm-drop-slot.is-pending {
+    animation: lm-slot-pending 0.9s ease-in-out infinite;
+}
+
+@keyframes lm-slot-pending {
+    50% {
+        background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+    }
+}
+
+/* The picture of a card that follows the pointer (and flies to a block a
+   click added). */
+.lm-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 10000;
+    margin: 0;
+    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+    box-shadow: 0 30px 60px -18px color-mix(in srgb, black 55%, transparent);
+    pointer-events: none;
+    rotate: -1.5deg;
+    scale: 1.04;
+    transition: scale 0.18s var(--lm-sheet-ease, ease), rotate 0.18s ease, opacity 0.18s ease;
+}
+
+.lm-drag-ghost .lm-card-stage {
+    opacity: 1;
+}
+
+.lm-drag-ghost.is-over-grid {
+    rotate: 0deg;
+    scale: 0.6;
+    opacity: 0.92;
+}
+
+.lm-drag-ghost.lm-fly {
+    rotate: 0deg;
+    scale: 1;
+    transition: none;
+}
+
+html.lm-dragging-card,
+html.lm-dragging-card * {
+    cursor: grabbing !important;
+}
+
+html.lm-dragging-card {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* A block just added: a ring that fades. */
+.lm-block.lm-block-arrived {
+    animation: lm-block-arrived 1.6s ease-out;
+}
+
+@keyframes lm-block-arrived {
+    0%,
+    30% {
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 65%, transparent);
+    }
+    100% {
+        box-shadow: 0 0 0 3px transparent;
+    }
+}
+
+@media (max-width: 40rem) {
+    .lm-gallery {
+        --lm-card-h: 7.5rem;
+        border-radius: 0.875rem 0.875rem 0 0;
+    }
+
+    .lm-gallery-head {
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+        padding-left: 1rem;
+    }
+
+    .lm-gallery-title p {
+        display: none;
+    }
+
+    .lm-gallery-search {
+        order: 3;
+        flex: 1 1 100%;
+    }
+
+    .lm-gallery-row {
+        padding-inline: 1rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lm-gallery,
+    .lm-gallery.is-open,
+    .lm-card,
+    .lm-card-preview,
+    .lm-card-stage,
+    .lm-grid-wrap,
+    .lm-drag-ghost,
+    .lm-gallery-toggle svg {
+        transition: none;
+    }
+
+    .lm-card-skeleton span,
+    .lm-drop-slot.is-pending,
+    .lm-block.lm-block-arrived,
+    .lm-card.is-adding .lm-card-preview {
+        animation: none;
+    }
+}
+
+/* The empty grid says what to do in each mode; in edit mode it opens the
+   gallery. */
+.lm-empty-edit,
+.lm-editing .lm-empty-view {
+    display: none;
+}
+
+.lm-editing .lm-empty-edit {
+    display: inline;
+}
+
+.lm-empty-add {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-primary);
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
 }

@@ -74,7 +74,7 @@ test.describe('pages', () => {
     const lm = new LayoutPage(page);
     await lm.plant(layoutOf(['controls'], ['tall'], []));
     await lm.goto();
-    const input = page.locator('[data-e2e-input]');
+    const input = lm.grid.locator('[data-e2e-input]');
     await input.click();
     await page.keyboard.type('note 2');
     await lm.settle();

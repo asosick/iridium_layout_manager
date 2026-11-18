@@ -1,0 +1,100 @@
+package views
+
+import "github.com/iridiumgo/iridium-icons/icon/icons"
+
+// Gallery renders the block gallery: a sheet that slides up from the bottom
+// of the window in edit mode, with a card for each block on offer. The cards
+// sit in one row that scrolls sideways, and the search field filters them by
+// name.
+//
+// A card previews its block live: the first time the card scrolls into view
+// the server renders the block (/lm/preview), at the width a placed block
+// gets, and the card scales the whole of it down with a transform. Blocks
+// need no styles of their own to preview, and a chart or a table looks as it
+// will on the page.
+//
+// Drag a card onto the grid to place its block there: the sheet steps aside
+// and the grid opens a slot where the block will land. Click a card (or
+// press Enter on it) to add its block after the last.
+//
+// It is teleported to <body>, as the Exit Zen button is, so it stacks above
+// the page content, and it stays in the page component's scope.
+templ Gallery(d *PageData) {
+    <template x-teleport="body" data-lm-gallery-template>
+        <section
+            id="lm-gallery"
+            class="lm-gallery"
+            data-lm-gallery
+            :class="galleryClass()"
+            role="region"
+            aria-labelledby="lm-gallery-heading"
+            @keydown="onGalleryKeydown"
+        >
+            <div class="lm-gallery-grabber" aria-hidden="true"></div>
+            <div class="lm-gallery-head">
+                <div class="lm-gallery-title">
+                    <h2 id="lm-gallery-heading">Add blocks</h2>
+                    <p>Drag one onto the page, or click to add it at the end.</p>
+                </div>
+                <label class="lm-gallery-search">
+                    @icons.Search.Component()
+                    <input
+                        type="search"
+                        data-lm-gallery-search
+                        placeholder="Search blocks"
+                        aria-label="Search blocks"
+                        autocomplete="off"
+                        spellcheck="false"
+                        x-model="gallerySearch"
+                        @input="filterGallery"
+                        @keydown="onSearchKeydown"
+                    />
+                    <span class="lm-gallery-count" x-text="galleryCount()"></span>
+                </label>
+                <button type="button" class="lm-gallery-close" aria-label="Close block gallery" title="Close (Esc)" @click="closeGallery">
+                    @icons.X.Component()
+                </button>
+            </div>
+            // While a card is dragged the sheet steps down to this strip.
+            <div class="lm-gallery-drag-hint" aria-hidden="true">
+                <span class="lm-gallery-drag-place">
+                    @icons.ArrowUp.Component()
+                    <span>Drop it on the page</span>
+                </span>
+                <span class="lm-gallery-drag-cancel">
+                    @icons.Undo2.Component()
+                    <span>Release here to cancel</span>
+                </span>
+            </div>
+            <div class="lm-gallery-body">
+                <ul class="lm-gallery-row" data-lm-gallery-row role="list" aria-labelledby="lm-gallery-heading" @wheel="onGalleryWheel" @scroll="onGalleryScroll">
+                    for _, opt := range d.AddOptions {
+                        <li class="lm-card" data-lm-card data-key={ opt.Key } data-label={ opt.Label } data-preview-url={ opt.PreviewURL }>
+                            <div class="lm-card-preview" data-lm-card-preview inert aria-hidden="true">
+                                <div class="lm-card-skeleton">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                </div>
+                                <div class="lm-card-stage" data-lm-card-stage></div>
+                            </div>
+                            <span class="lm-card-label" data-lm-card-label>{ opt.Label }</span>
+                            <button
+                                type="button"
+                                class="lm-card-hit"
+                                aria-label={ "Add " + opt.Label }
+                                @click="onCardClick"
+                                @pointerdown="onCardPointerDown"
+                                @keydown="onCardKeydown"
+                            ></button>
+                        </li>
+                    }
+                </ul>
+                <p class="lm-gallery-empty" x-show="galleryEmpty()" x-cloak>
+                    @icons.SearchX.Component()
+                    <span>No blocks match “<span x-text="gallerySearch"></span>”.</span>
+                </p>
+            </div>
+        </section>
+    </template>
+}

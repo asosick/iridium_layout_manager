@@ -66,7 +66,8 @@ test.describe('masonry', () => {
     const lm = new LayoutPage(page);
     await lm.plant(layoutOf(['short', 'tall', 'grow', 'short', ['short', 2], 'controls']));
     await lm.goto();
-    const grow = page.locator('[data-e2e-kind="grow"]');
+    // In the grid: the gallery's preview of grow is a copy of it.
+    const grow = lm.grid.locator('[data-e2e-kind="grow"]');
     await expect(grow).toHaveCSS('height', '400px');
     expect(await geometryProblems(lm), 'view mode after the late growth').toEqual([]);
 
@@ -93,7 +94,7 @@ test.describe('masonry', () => {
     await lm.plant(layoutOf(['grow', 'short', 'short', 'short', 'short']));
     await lm.goto();
     await lm.edit();
-    await expect(page.locator('[data-e2e-kind="grow"]')).toHaveCSS('height', '400px');
+    await expect(lm.grid.locator('[data-e2e-kind="grow"]')).toHaveCSS('height', '400px');
     const [grow, a, b, c, last] = await lm.order();
 
     await startFrameSampler(page);

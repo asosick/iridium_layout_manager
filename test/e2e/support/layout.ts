@@ -99,7 +99,8 @@ export class LayoutPage {
   doneButton() { return this.page.locator('[data-lm-done]'); }
   resetButton() { return this.page.getByRole('button', { name: 'Reset', exact: true }); }
   cancelButton() { return this.page.getByRole('button', { name: 'Cancel', exact: true }); }
-  addButton() { return this.page.getByRole('button', { name: 'Add', exact: true }); }
+  /** "Add block": opens and closes the block gallery. */
+  addButton() { return this.page.locator('[data-lm-gallery-toggle]'); }
 
   async isEditing() {
     return (await this.root.getAttribute('class'))?.split(/\s+/).includes('lm-editing') ?? false;
@@ -141,23 +142,35 @@ export class LayoutPage {
 
   control(id: string, label: string) { return this.block(id).getByRole('button', { name: label, exact: true }); }
 
-  /** Adds a block of the given kind through the toolbar; returns its ID. */
+  /**
+   * Adds a block of the given kind by clicking its card in the block gallery,
+   * which adds it after the last; returns its ID. The gallery is left as it
+   * was found: a closed one is opened for the add and closed again, so it
+   * covers no block afterwards.
+   */
   async addBlock(kind: BlockKind): Promise<string> {
-    const before = await this.order();
-    await this.page.locator('[data-lm-type-select]').selectOption(kind);
-    await Promise.all([
-      this.page.waitForResponse(r => r.url().includes('/lm/add')),
-      this.addButton().click(),
-    ]);
-    await this.waitForIdle();
-    const added = (await this.order()).filter(id => !before.includes(id));
-    expect(added, `one new ${kind} block`).toHaveLength(1);
-    return added[0];
+    return (await this.addBlocks(kind))[0];
   }
 
+  /** addBlock for each kind in turn, opening the gallery once. */
   async addBlocks(...kinds: BlockKind[]): Promise<string[]> {
+    const wasOpen = await this.isGalleryOpen();
+    await this.openGallery();
+    if ((await this.searchField().inputValue()) !== '') await this.searchField().fill('');
     const ids: string[] = [];
-    for (const kind of kinds) ids.push(await this.addBlock(kind));
+    for (const kind of kinds) {
+      const before = await this.order();
+      await Promise.all([
+        this.page.waitForResponse(r => r.url().includes('/lm/add')),
+        this.cardButton(kind).click(),
+      ]);
+      await this.waitForIdle();
+      await this.sheetSettled();
+      const added = (await this.order()).filter(id => !before.includes(id));
+      expect(added, `one new ${kind} block`).toHaveLength(1);
+      ids.push(added[0]);
+    }
+    if (!wasOpen) await this.closeGallery();
     return ids;
   }
 
@@ -178,6 +191,104 @@ export class LayoutPage {
   async toggleFull(id: string) { await this.clickControl(id, 'Toggle full width', '/lm/resize'); }
 
   async cols(id: string) { return Number(await this.block(id).getAttribute('data-cols')); }
+
+  // --- the block gallery --------------------------------------------------------
+
+  gallery() { return this.page.locator('[data-lm-gallery]'); }
+  searchField() { return this.page.locator('[data-lm-gallery-search]'); }
+  card(kind: BlockKind) { return this.page.locator(`[data-lm-card][data-key="${kind}"]`); }
+  cardButton(kind: BlockKind) { return this.card(kind).locator('.lm-card-hit'); }
+  slot() { return this.page.locator('[data-lm-grid] > .lm-drop-slot'); }
+
+  async isGalleryOpen() {
+    return (await this.gallery().getAttribute('class'))?.split(/\s+/).includes('is-open') ?? false;
+  }
+
+  /** Opens the gallery with "Add block" and waits for the sheet to settle. */
+  async openGallery() {
+    if (!(await this.isGalleryOpen())) await this.addButton().click();
+    await expect(this.gallery()).toHaveClass(/\bis-open\b/);
+    await this.sheetSettled();
+  }
+
+  /** Closes the gallery with "Add block" and waits for the page to settle. */
+  async closeGallery() {
+    if (await this.isGalleryOpen()) await this.addButton().click();
+    await expect(this.gallery()).not.toHaveClass(/\bis-open\b/);
+    await this.sheetSettled();
+  }
+
+  /**
+   * Waits until nothing is moving: the sheet sliding, the room below the grid
+   * growing or shrinking with it, blocks sliding aside, the page scrolling
+   * (a block a click added is scrolled into view).
+   */
+  async sheetSettled() {
+    await this.page.waitForFunction(() => {
+      const sheet = document.querySelector('[data-lm-gallery]');
+      const wrap = document.querySelector('.lm-grid-wrap');
+      const sliding = (el: Element | null) => !!el && el.getAnimations().length > 0;
+      const moving = [...document.querySelectorAll('[data-lm-grid] > [data-lm-block]')]
+        .some(el => el.getAnimations().some(a => (a as any).id === 'lm-flip'));
+      return !moving && !sliding(sheet) && !sliding(wrap);
+    });
+    let last = -1;
+    for (let still = 0; still < 3;) {
+      const top = await this.page.evaluate(() => (document.querySelector('[data-main]') ?? document.scrollingElement!).scrollTop);
+      still = top === last ? still + 1 : 0;
+      last = top;
+      await this.frames(1);
+    }
+  }
+
+  /**
+   * Drags the card of `kind` out of the gallery and releases it at `to`: a
+   * point, or the left or right edge region of a block (`before`/`after` its
+   * ID). It lifts the card, travels in small steps, then holds still until
+   * the slot has settled, and lets go where it is. Returns the release point.
+   */
+  async dragCard(kind: BlockKind, to: { x: number; y: number } | { before: string } | { after: string }) {
+    await this.openGallery();
+    const grip = await this.cardButton(kind).boundingBox();
+    expect(grip, `the ${kind} card is visible`).not.toBeNull();
+    const sx = grip!.x + grip!.width / 2;
+    const sy = grip!.y + grip!.height / 2;
+    const mouse = this.page.mouse;
+    await mouse.move(sx, sy);
+    await mouse.down();
+    await mouse.move(sx, sy - 12, { steps: 3 });
+    await this.sheetSettled();
+    let end: { x: number; y: number };
+    if ('x' in to) {
+      end = to;
+    } else {
+      const id = 'before' in to ? to.before : to.after;
+      const box = await this.block(id).boundingBox();
+      expect(box, `drop target ${id} is visible`).not.toBeNull();
+      end = { x: box!.x + box!.width * ('before' in to ? 0.2 : 0.8), y: box!.y + box!.height / 2 };
+    }
+    const steps = 16;
+    for (let i = 1; i <= steps; i++) {
+      await mouse.move(sx + ((end.x - sx) * i) / steps, sy - 12 + ((end.y - sy + 12) * i) / steps);
+      await this.page.waitForTimeout(16);
+    }
+    await this.frames(2);
+    await this.sheetSettled();
+    await mouse.up();
+    return end;
+  }
+
+  /** dragCard, then waits for the block the drop adds; returns its ID. */
+  async dropCard(kind: BlockKind, to: Parameters<LayoutPage['dragCard']>[1]): Promise<string> {
+    const before = await this.order();
+    const added = this.page.waitForResponse(r => r.url().includes('/lm/add'));
+    await this.dragCard(kind, to);
+    await added;
+    await this.waitForIdle();
+    const ids = (await this.order()).filter(id => !before.includes(id));
+    expect(ids, `one new ${kind} block`).toHaveLength(1);
+    return ids[0];
+  }
 
   // --- reading order ----------------------------------------------------------
 

@@ -64,6 +64,7 @@ func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, sta
 		Writer:         w,
 		URLs: views.PageURLs{
 			Add:        prefix + routeAdd,
+			Preview:    prefix + routePreview,
 			Remove:     prefix + routeRemove,
 			Resize:     prefix + routeResize,
 			Move:       prefix + routeMove,
@@ -77,12 +78,16 @@ func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, sta
 		},
 	}
 
-	// Dropdown options come straight from the specs on offer; the source is
-	// asked once per build.
+	// The gallery's cards come straight from the specs on offer; the source
+	// is asked once per build.
 	specs := p.specs(r)
 	d.AddOptions = make([]views.BlockOption, 0, len(specs))
 	for _, b := range specs {
-		d.AddOptions = append(d.AddOptions, views.BlockOption{Key: b.Key(), Label: b.Label()})
+		d.AddOptions = append(d.AddOptions, views.BlockOption{
+			Key:        b.Key(),
+			Label:      b.Label(),
+			PreviewURL: d.URLs.Preview + "?type=" + url.QueryEscape(b.Key()),
+		})
 	}
 	d.ReorderURL = d.URLs.Reorder + "?layout=" + strconv.Itoa(currentLayout)
 	return d

@@ -160,6 +160,18 @@ func (l *Layout) Find(id string) (*Block, int) {
 	return nil, -1
 }
 
+// Insert puts b at index at, or after the last block when at is negative or
+// past the end, and returns the index it took.
+func (l *Layout) Insert(b Block, at int) int {
+	if at < 0 || at > len(l.Blocks) {
+		at = len(l.Blocks)
+	}
+	l.Blocks = append(l.Blocks, Block{})
+	copy(l.Blocks[at+1:], l.Blocks[at:])
+	l.Blocks[at] = b
+	return at
+}
+
 // Remove drops the block with the given ID. Returns true if anything was
 // removed.
 func (l *Layout) Remove(id string) bool {

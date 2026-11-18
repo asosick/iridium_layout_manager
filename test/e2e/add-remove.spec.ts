@@ -62,10 +62,10 @@ test.describe('add and remove', () => {
       await lm.edit();
       expect(await lm.order()).toHaveLength(30);
 
-      await lm.page.locator('[data-lm-type-select]').selectOption('short');
+      await lm.openGallery();
       await Promise.all([
         page.waitForResponse(r => r.url().includes('/lm/add')),
-        lm.addButton().click(),
+        lm.cardButton('short').click(),
       ]);
       await lm.waitForIdle();
       await expect(page.getByText('An unexpected error occurred')).toHaveCount(0);

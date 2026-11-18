@@ -85,8 +85,9 @@ func blockID(r *http.Request) string {
 }
 
 // fixtureBlock is a DynamicBlock with fixed geometry (set by fixtures.css)
-// that prints its kind and instance ID, so order and content can be read
-// from the DOM, and counts its renders.
+// that prints its kind, its instance ID and whether it renders as a gallery
+// preview, so order and content can be read from the DOM, and counts its
+// renders.
 func (a *App) fixtureBlock(kind, label string, delay time.Duration, body string) layoutmgr.BlockSpec {
 	return layoutmgr.DynamicBlock(kind, label, func(_ http.ResponseWriter, r *http.Request) templ.Component {
 		a.renders.inc(kind)
@@ -94,10 +95,11 @@ func (a *App) fixtureBlock(kind, label string, delay time.Duration, body string)
 			time.Sleep(delay)
 		}
 		id := html.EscapeString(blockID(r))
+		preview := layoutmgr.IsPreview(r)
 		return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
 			_, err := fmt.Fprintf(w,
-				`<div class="e2e-fixture e2e-%[1]s" data-e2e-kind="%[1]s" data-e2e-id="%[2]s"><strong>%[1]s</strong> <code>%[2]s</code>%[3]s</div>`,
-				kind, id, body)
+				`<div class="e2e-fixture e2e-%[1]s" data-e2e-kind="%[1]s" data-e2e-id="%[2]s" data-e2e-preview="%[4]t"><strong>%[1]s</strong> <code>%[2]s</code>%[3]s</div>`,
+				kind, id, body, preview)
 			return err
 		})
 	})

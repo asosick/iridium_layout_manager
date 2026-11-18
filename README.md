@@ -2,8 +2,9 @@
 
 A standalone plugin for [Iridium](https://github.com/goiridium/iridium) that
 lets your end-users arrange their own dashboard pages: pick blocks (Iridium
-widgets or arbitrary `templ` components) from a dropdown, drop them onto the
-page, drag-to-reorder, resize their column span, and commit the result. Layouts
+widgets or arbitrary `templ` components) from a gallery of live previews,
+drag them onto the page, drag-to-reorder, resize their column span, and
+commit the result. Layouts
 are kept on the server per user, with hooks to store committed layouts in your
 own database.
 
@@ -56,9 +57,10 @@ func main() {
 }
 ```
 
-That's it. Visit the page, click **🔒 Edit**, pick a block from the dropdown,
-hit **+ Add** — your block appears on the grid. Drag the `⠿` handle or use the
-left/right buttons to reorder. Resize with the corner handle or the size
+That's it. Visit the page, click **🔒 Edit**, then **+ Add block**: a gallery
+slides up from the bottom with a live preview of every block. Drag a card onto
+the grid to place its block there, or click it to add it at the end. Drag the
+`⠿` handle or use the left/right buttons to reorder. Resize with the corner handle or the size
 buttons, and use `×` to remove. **Done** commits and locks the arrangement;
 **Reset** returns to the last committed arrangement and keeps editing;
 **Cancel** does the same and locks.
@@ -80,6 +82,44 @@ screen is the order stored. Under 32rem of width the grid becomes one column.
 | `WidgetBlock(key, label, w)` | Tile is an existing Iridium widget (chart, stats, form, table). |
 
 You can mix them freely in a single `Blocks(...)` call.
+
+### The block gallery
+
+**+ Add block** opens a sheet at the bottom of the window with a card for
+every block on offer, in one row that scrolls sideways (a mouse wheel scrolls
+it too). The search field filters the cards by name: every word typed must
+appear, Enter adds the first match, Escape clears the search and then closes
+the sheet. Left and Right move between cards, and Enter or a click adds the
+card's block after the last.
+
+Each card is a live preview: the first time a card scrolls into view, the
+server renders the block (`GET /lm/preview?type=…`), laid out as wide as a
+placed block, and the card scales the whole of it down with a CSS transform.
+A block needs no styles of its own to preview, and a chart or a table looks as
+it will on the page. The preview is inert: nothing in it takes focus or
+clicks.
+
+Drag a card onto the grid and the sheet steps down to a strip, the grid opens
+a slot where the block will land (the block itself, faded, at the size it will
+be placed), and the blocks around it slide aside. Release to place it there;
+release over the strip or away from the grid, or press Escape, and nothing is
+added. Near the top or bottom of the page the page scrolls. On a touch screen,
+drag a card upwards to lift it; sideways, the row scrolls.
+
+A preview renders the block with its own front-end ID, so it never clashes
+with a placed copy. A heavy block (a camera feed, a slow query) can render
+something lighter in the gallery: `layoutmgr.IsPreview(r)` reports a preview
+render, and a `BlockSpec` that implements `BlockPreviewer` supplies a preview
+of its own.
+
+```go
+layoutmgr.DynamicBlock("cam:"+cam.ID, cam.Name, func(w http.ResponseWriter, r *http.Request) templ.Component {
+    if layoutmgr.IsPreview(r) {
+        return cameraStill(cam) // not the live stream
+    }
+    return cameraStream(cam)
+})
+```
 
 ### Blocks that come and go
 
@@ -189,7 +229,8 @@ server after the one before it has landed.
 
 Edits change the page in place: remove, resize, move and reorder answer 204
 (resize with the stored span in `X-Layout-Manager-Cols`), and Add answers the
-one new block. The other blocks are never re-rendered, so widgets keep their
+one new block (placed at `at=I` when a card was dropped before the block at
+index I, else after the last). The other blocks are never re-rendered, so widgets keep their
 state (a table's sort and page, a chart) and focus stays where it was. Only
 switching, adding or removing a page, entering edit mode with unsaved changes,
 and Reset load a whole grid. Renaming a page answers the name kept.

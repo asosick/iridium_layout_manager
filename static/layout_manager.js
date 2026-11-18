@@ -3,10 +3,10 @@
 // Two Alpine components (registered with Alpine.data, as Iridium's Alpine
 // build is CSP-mode):
 //
-//   layout_manager        the page: modes, pages, the toolbar, the order of
-//                         the blocks and the one queue every request goes
-//                         through, so each edit reaches the server after the
-//                         one before it has landed.
+//   layout_manager        the page: modes, pages, the toolbar, the block
+//                         gallery, the order of the blocks and the one queue
+//                         every request goes through, so each edit reaches
+//                         the server after the one before it has landed.
 //   layout_manager_block  one block: its span, its controls, drag-to-resize
 //                         and the masonry row span its content needs. It sits
 //                         inside the page component, so it reaches the page's
@@ -16,6 +16,11 @@
 // one new block), and the other blocks keep their state. Only switching page,
 // entering edit mode with unsaved changes, and Reset load a whole grid.
 //
+// The block gallery is a sheet at the bottom of the window with a live,
+// scaled-down preview of every block on offer. A card dragged onto the grid
+// places its block where it is dropped; a card clicked adds its block after
+// the last.
+//
 // Iridium loads this plugin asset before Alpine starts, which also makes the
 // components available to later HTMX page fragments.
 
@@ -23,10 +28,100 @@
     // Keys typed into these never switch page.
     const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
 
+    // Gallery previews. A block lays out as wide as a placed block (one
+    // column, within these bounds), then is scaled down whole to fit its
+    // card's height, but never below a scale that still reads: a taller block
+    // is cut off with a fade instead. A card is as wide as its scaled block.
+    const PREVIEW_MIN_WIDTH = 240;
+    const PREVIEW_MAX_WIDTH = 560;
+    const PREVIEW_MAX_SCALE = 0.62;
+    const PREVIEW_MIN_SCALE = 0.3;
+    const CARD_MIN_WIDTH = 150;
+    const CARD_MAX_WIDTH = 340;
+    // How many previews load at once.
+    const PREVIEW_CONCURRENCY = 3;
+    // A press on a card that moves this far (px) is a drag, not a click.
+    const DRAG_THRESHOLD = 6;
+    // Near the top or bottom of the page a drag scrolls it, faster nearer the
+    // edge.
+    const AUTOSCROLL_ZONE = 72;
+    const AUTOSCROLL_MAX_SPEED = 22;
+
+    // Iridium's animation setting, or the system's, turns scripted motion off.
+    const motionOff = () => document.documentElement.dataset.iridiumAnimationMode === 'none'
+        || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // staticClone copies rendered markup as a picture of itself: without
+    // Alpine, htmx or ids (but an SVG's, which its fills refer to), so nothing
+    // in the copy starts up again, and with its canvases repainted.
+    const staticClone = (node) => {
+        const clone = node.cloneNode(true);
+        const strip = (el) => {
+            for (const attr of Array.from(el.attributes)) {
+                const name = attr.name;
+                if (name.startsWith('x-') || name.startsWith('@') || name.startsWith(':')
+                    || name.startsWith('hx-') || name.startsWith('data-lm-')
+                    || (name === 'id' && !el.closest('svg'))) {
+                    el.removeAttribute(name);
+                }
+            }
+        };
+        strip(clone);
+        clone.querySelectorAll('*').forEach(strip);
+        const canvases = node.querySelectorAll('canvas');
+        clone.querySelectorAll('canvas').forEach((canvas, i) => {
+            try {
+                canvas.getContext('2d').drawImage(canvases[i], 0, 0);
+            } catch (err) { /* empty or tainted: left blank */ }
+        });
+        clone.setAttribute('x-ignore', '');
+        clone.setAttribute('inert', '');
+        clone.setAttribute('aria-hidden', 'true');
+        return clone;
+    };
+
+    // scrollParent is the element that scrolls el: Iridium's main area, or
+    // the document.
+    const scrollParent = (el) => {
+        for (let node = el && el.parentElement; node && node !== document.body; node = node.parentElement) {
+            const overflow = window.getComputedStyle(node).overflowY;
+            if (overflow === 'auto' || overflow === 'scroll') return node;
+        }
+        return document.scrollingElement || document.documentElement;
+    };
+
+    // markWords writes text into el with every one of words (lower case)
+    // marked.
+    const markWords = (el, text, words) => {
+        if (!el) return;
+        const lower = text.toLowerCase();
+        const marked = new Array(text.length).fill(false);
+        // Lower-casing can change a string's length; then nothing is marked.
+        if (lower.length === text.length) {
+            words.forEach(word => {
+                for (let i = lower.indexOf(word); i >= 0; i = lower.indexOf(word, i + word.length)) {
+                    marked.fill(true, i, i + word.length);
+                }
+            });
+        }
+        el.textContent = '';
+        for (let i = 0; i < text.length;) {
+            let j = i;
+            while (j < text.length && marked[j] === marked[i]) j++;
+            const part = text.slice(i, j);
+            if (marked[i]) {
+                const mark = document.createElement('mark');
+                mark.textContent = part;
+                el.appendChild(mark);
+            } else {
+                el.appendChild(document.createTextNode(part));
+            }
+            i = j;
+        }
+    };
+
     const layoutManager = () => ({
         editMode: false,
-        // Mirrors the first <option> by default; Add posts the bound value.
-        selectedType: '',
         // Which page (layout) is shown: the selector highlight and every
         // request's layout.
         currentLayout: 0,
@@ -45,6 +140,16 @@
         order: [],
         lockAfterDone: true,
         zenMode: false,
+        // The block gallery: whether it is open, the search typed, how many
+        // cards match it of how many, and whether a card is being dragged
+        // (the sheet steps aside) with the pointer back over the sheet (a
+        // release there puts nothing down).
+        galleryOpen: false,
+        gallerySearch: '',
+        galleryShown: 0,
+        galleryTotal: 0,
+        galleryDragging: false,
+        galleryOverSheet: false,
         // The page root. Not this.$el: in a method an Alpine directive calls
         // (@click on a toolbar button), $el is that button.
         _root: null,
@@ -52,12 +157,18 @@
         _queue: null,
         _reorderQueued: false,
         _listeners: null,
+        // The gallery's sheet (teleported to <body>), its previews' loading
+        // and the card being dragged.
+        _gallery: null,
+        _previews: null,
+        _drag: null,
+        // When the last drag of a card ended, so the click that ends it adds
+        // nothing more.
+        _dragUpAt: 0,
 
         init() {
             const root = this.$el;
             this._root = root;
-            const select = root.querySelector('[data-lm-type-select]');
-            if (select && select.options.length > 0) this.selectedType = select.options[0].value;
 
             const data = root.dataset;
             this._urls = {
@@ -81,6 +192,8 @@
             this._listeners = {
                 hotkey: (e) => this.onHotkey(e),
                 zenEscape: (e) => this.onZenEscape(e),
+                galleryEscape: (e) => this.onGalleryEscape(e),
+                resize: () => this.galleryResized(),
                 // SortableJS reports a finished drag as a 'sort' event on the
                 // grid; a sortable list inside a block reports its own.
                 sort: (e) => {
@@ -88,10 +201,16 @@
                 },
             };
             document.addEventListener('keydown', this._listeners.hotkey);
+            document.addEventListener('keydown', this._listeners.galleryEscape);
             // Capture Escape before page-level shortcuts so leaving Zen mode
             // cannot trigger another action on the same key press.
             window.addEventListener('keydown', this._listeners.zenEscape, true);
+            window.addEventListener('resize', this._listeners.resize);
             root.addEventListener('sort', this._listeners.sort);
+            // Leaving edit mode puts the gallery away.
+            this.$watch('editMode', (editing) => {
+                if (!editing) this.closeGallery();
+            });
             this.gridShown();
         },
 
@@ -99,9 +218,24 @@
             const l = this._listeners;
             if (!l) return;
             document.removeEventListener('keydown', l.hotkey);
+            document.removeEventListener('keydown', l.galleryEscape);
             window.removeEventListener('keydown', l.zenEscape, true);
+            window.removeEventListener('resize', l.resize);
             this._root.removeEventListener('sort', l.sort);
             this._listeners = null;
+            this.cancelDrag();
+            if (this._previews) {
+                this._previews.observer.disconnect();
+                this._previews.resize.disconnect();
+                this._previews.wrap.disconnect();
+                this._previews = null;
+            }
+        },
+
+        rootClass() {
+            let classes = this.editMode ? 'lm-editing' : '';
+            if (this.galleryOpen) classes += ' lm-gallery-open';
+            return classes;
         },
 
         // --- the grid -----------------------------------------------------------
@@ -237,18 +371,30 @@
             return this.swapGrid('GET', this._urls.select + '?layout=' + i + '&mode=' + (this.editMode ? 'edit' : 'view'));
         },
 
-        // --- toolbar --------------------------------------------------------------
-
-        addBlock() {
-            const layout = this.currentLayout;
-            const url = this._urls.add + '?type=' + encodeURIComponent(this.selectedType) + '&layout=' + layout;
-            this.enqueue(async () => {
-                const grid = this.grid();
-                if (!grid || layout !== this.currentLayout) return;
-                await window.htmx.ajax('POST', url, { source: grid, target: grid, swap: 'beforeend' });
-                this.syncOrder();
-            });
+        // insertBlock asks the server for a new block of type key at index at
+        // (-1: after the last) and puts it in place of target, or at the end
+        // of the grid. It runs in the queue, and answers the new block.
+        async insertBlock(key, at, target) {
+            const grid = this.grid();
+            if (!grid) return null;
+            const before = new Set(this.order);
+            let url = this._urls.add + '?type=' + encodeURIComponent(key) + '&layout=' + this.currentLayout;
+            if (at >= 0) url += '&at=' + at;
+            try {
+                if (target) await window.htmx.ajax('POST', url, { source: grid, target, swap: 'outerHTML' });
+                else await window.htmx.ajax('POST', url, { source: grid, target: grid, swap: 'beforeend' });
+            } finally {
+                // Refused: the slot goes.
+                if (target && target.isConnected) target.remove();
+            }
+            this.syncOrder();
+            const id = this.order.find(candidate => !before.has(candidate));
+            const block = id ? this.blockElements().find(el => el.dataset.id === id) : null;
+            if (block) this.pulse(block, 'lm-block-arrived', 1600);
+            return block || null;
         },
+
+        // --- toolbar --------------------------------------------------------------
 
         save() {
             this.enqueue(async () => {
@@ -401,6 +547,854 @@
                 // Refused: show the order the server kept.
                 if (!response.ok) await this.loadPage(this.currentLayout);
             });
+        },
+
+        // --- the block gallery --------------------------------------------------------
+
+        // gallery is the sheet, which x-teleport moved to <body>.
+        gallery() {
+            if (this._gallery && this._gallery.isConnected) return this._gallery;
+            const template = this._root.querySelector('[data-lm-gallery-template]');
+            this._gallery = (template && template._x_teleport) || null;
+            return this._gallery;
+        },
+
+        galleryRow() {
+            const sheet = this.gallery();
+            return sheet ? sheet.querySelector('[data-lm-gallery-row]') : null;
+        },
+
+        galleryCards() {
+            const sheet = this.gallery();
+            return sheet ? Array.from(sheet.querySelectorAll('[data-lm-card]')) : [];
+        },
+
+        visibleCards() {
+            return this.galleryCards().filter(card => !card.hidden);
+        },
+
+        galleryClass() {
+            let classes = this.galleryOpen ? 'is-open' : '';
+            if (this.galleryDragging) classes += ' is-dragging';
+            if (this.galleryOverSheet) classes += ' is-over';
+            return classes;
+        },
+
+        galleryToggleClass() {
+            return this.galleryOpen ? 'is-active' : '';
+        },
+
+        galleryEmpty() {
+            return this.galleryTotal > 0 && this.galleryShown === 0;
+        },
+
+        galleryCount() {
+            if (!this.gallerySearch.trim()) return this.galleryTotal === 1 ? '1 block' : this.galleryTotal + ' blocks';
+            return this.galleryShown + ' of ' + this.galleryTotal;
+        },
+
+        toggleGallery() {
+            if (this.galleryOpen) this.closeGallery();
+            else this.openGallery();
+        },
+
+        openGallery() {
+            if (!this.editMode || this.galleryOpen || !this.gallery()) return;
+            this.galleryOpen = true;
+            this.placeGallery();
+            this.filterGallery();
+            this.$nextTick(() => {
+                this.startPreviews();
+                this.updateGalleryFades();
+                // A pointer that comes with a keyboard goes straight to the
+                // search. On a touch screen the keyboard would cover the sheet.
+                if (window.matchMedia('(pointer: fine)').matches) {
+                    const search = this.gallery().querySelector('[data-lm-gallery-search]');
+                    if (search) search.focus({ preventScroll: true });
+                }
+            });
+        },
+
+        closeGallery() {
+            if (!this.galleryOpen) return;
+            this.cancelDrag();
+            const sheet = this.gallery();
+            const hadFocus = !!sheet && sheet.contains(document.activeElement);
+            this.galleryOpen = false;
+            if (hadFocus) {
+                const toggle = this._root.querySelector('[data-lm-gallery-toggle]');
+                if (toggle && toggle.offsetParent !== null) toggle.focus({ preventScroll: true });
+                else document.activeElement.blur();
+            }
+        },
+
+        // placeGallery lines the sheet up with the grid, and leaves room below
+        // the grid to scroll its last blocks up above the sheet.
+        placeGallery() {
+            const sheet = this.gallery();
+            const wrap = this._root.querySelector('.lm-grid-wrap');
+            if (!sheet || !wrap) return;
+            const viewport = document.documentElement.clientWidth;
+            const rect = wrap.getBoundingClientRect();
+            let left = 0;
+            let right = 0;
+            if (viewport >= 640) {
+                left = Math.max(8, Math.round(rect.left) - 16);
+                right = Math.max(8, Math.round(viewport - rect.right) - 16);
+            }
+            sheet.style.setProperty('--lm-gallery-left', left + 'px');
+            sheet.style.setProperty('--lm-gallery-right', right + 'px');
+            this._root.style.setProperty('--lm-gallery-space', sheet.offsetHeight + 'px');
+        },
+
+        // The window or the grid changed size: the sheet follows the grid,
+        // and the previews lay out again at a placed block's new width.
+        galleryResized() {
+            if (!this.galleryOpen) return;
+            this.placeGallery();
+            const previews = this._previews;
+            if (previews) {
+                const width = this.previewWidth();
+                if (width !== previews.width) {
+                    previews.width = width;
+                    this.galleryCards().forEach(card => {
+                        const stage = card.querySelector('[data-lm-card-stage]');
+                        if (stage && card.dataset.lmPreview) stage.style.width = width + 'px';
+                        this.fitPreview(card);
+                    });
+                }
+            }
+            this.updateGalleryFades();
+        },
+
+        // previewWidth is the width a block lays out at in a preview: a placed
+        // block's, one column of the grid.
+        previewWidth() {
+            const grid = this.grid();
+            if (!grid) return 320;
+            const styles = window.getComputedStyle(grid);
+            const columns = Math.max(1, styles.gridTemplateColumns.split(' ').length);
+            const gap = parseFloat(styles.columnGap) || 0;
+            const width = (grid.clientWidth - gap * (columns - 1)) / columns;
+            return Math.round(Math.min(PREVIEW_MAX_WIDTH, Math.max(PREVIEW_MIN_WIDTH, width || 320)));
+        },
+
+        // startPreviews loads each card's preview the first time it scrolls
+        // into (or near) view, and refits a preview whose block changes size.
+        startPreviews() {
+            if (this._previews) return;
+            const row = this.galleryRow();
+            if (!row) return;
+            const previews = {
+                width: this.previewWidth(),
+                queue: [],
+                active: 0,
+                observer: new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) this.queuePreview(entry.target);
+                    });
+                }, { root: row, rootMargin: '0px 320px' }),
+                resize: new ResizeObserver((entries) => {
+                    entries.forEach(entry => {
+                        const card = entry.target.closest('[data-lm-card]');
+                        if (card) this.fitPreview(card);
+                    });
+                }),
+                // A frame later: placing the sheet can change the wrap's
+                // padding, which a change inside the callback would report
+                // as a ResizeObserver loop.
+                wrap: new ResizeObserver(() => window.requestAnimationFrame(() => this.galleryResized())),
+            };
+            this._previews = previews;
+            this.galleryCards().forEach(card => {
+                this.fitPreview(card);
+                previews.observer.observe(card);
+            });
+            const wrap = this._root.querySelector('.lm-grid-wrap');
+            if (wrap) previews.wrap.observe(wrap);
+        },
+
+        queuePreview(card) {
+            const previews = this._previews;
+            if (!previews || card.dataset.lmPreview) return;
+            card.dataset.lmPreview = 'queued';
+            previews.queue.push(card);
+            this.pumpPreviews();
+        },
+
+        pumpPreviews() {
+            const previews = this._previews;
+            while (previews && previews.active < PREVIEW_CONCURRENCY && previews.queue.length > 0) {
+                const card = previews.queue.shift();
+                previews.active++;
+                this.loadPreview(card).finally(() => {
+                    previews.active--;
+                    if (this._previews === previews) this.pumpPreviews();
+                });
+            }
+        },
+
+        // loadPreview has the server render the card's block, laid out as wide
+        // as a placed block, through htmx: the block's own scripts start as
+        // they do on the page (a chart draws itself, a table loads).
+        async loadPreview(card) {
+            const stage = card.querySelector('[data-lm-card-stage]');
+            if (!stage || !card.isConnected || !this._previews) return;
+            card.dataset.lmPreview = 'loading';
+            stage.style.width = this._previews.width + 'px';
+            try {
+                await window.htmx.ajax('GET', card.dataset.previewUrl, { source: stage, target: stage, swap: 'innerHTML' });
+            } catch (err) {
+                console.warn('[layoutmgr] preview of', card.dataset.key, err);
+            }
+            card.dataset.lmPreview = stage.childElementCount > 0 ? 'ready' : 'failed';
+            this.fitPreview(card);
+            if (this._previews) this._previews.resize.observe(stage);
+        },
+
+        // fitPreview scales the card's block down to the card's height, within
+        // PREVIEW_MIN_SCALE..PREVIEW_MAX_SCALE, and makes the card as wide as
+        // the block it shows.
+        fitPreview(card) {
+            const preview = card.querySelector('[data-lm-card-preview]');
+            const stage = card.querySelector('[data-lm-card-stage]');
+            if (!preview || !stage || !this._previews) return;
+            const width = this._previews.width;
+            const height = preview.clientHeight;
+            const natural = card.dataset.lmPreview === 'ready' ? Math.max(1, stage.offsetHeight) : 0;
+            let scale = Math.min(PREVIEW_MAX_SCALE, CARD_MAX_WIDTH / width);
+            if (natural > 0) scale = Math.min(scale, Math.max(PREVIEW_MIN_SCALE, height / natural));
+            const cardWidth = Math.round(Math.max(CARD_MIN_WIDTH, Math.min(CARD_MAX_WIDTH, width * scale)));
+            const x = Math.max(0, Math.round((cardWidth - width * scale) / 2));
+            const y = natural > 0 ? Math.max(0, Math.round((height - natural * scale) / 2)) : 0;
+            card.style.width = cardWidth + 'px';
+            stage.style.transform = 'translate(' + x + 'px, ' + y + 'px) scale(' + scale.toFixed(4) + ')';
+            card.classList.toggle('lm-card-clipped', natural * scale > height + 1);
+        },
+
+        onGalleryScroll() {
+            this.updateGalleryFades();
+        },
+
+        // The row's ends fade out while there is more to scroll to.
+        updateGalleryFades() {
+            const row = this.galleryRow();
+            if (!row) return;
+            const end = row.scrollWidth - row.clientWidth;
+            row.classList.toggle('lm-fade-start', row.scrollLeft > 4);
+            row.classList.toggle('lm-fade-end', row.scrollLeft < end - 4);
+        },
+
+        // A mouse wheel scrolls the row sideways; a trackpad already does.
+        onGalleryWheel(e) {
+            const row = e.currentTarget;
+            if (e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+            if (row.scrollWidth <= row.clientWidth) return;
+            e.preventDefault();
+            const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? row.clientWidth : 1;
+            row.scrollLeft += e.deltaY * unit;
+        },
+
+        // filterGallery shows the cards whose name (or key) holds every word
+        // typed, and marks the words in their names.
+        filterGallery() {
+            const words = (this.gallerySearch || '').toLowerCase().split(/\s+/).filter(Boolean);
+            const cards = this.galleryCards();
+            let shown = 0;
+            cards.forEach(card => {
+                const label = card.dataset.label || '';
+                const haystack = (label + ' ' + (card.dataset.key || '')).toLowerCase();
+                const match = words.every(word => haystack.includes(word));
+                card.hidden = !match;
+                if (match) shown++;
+                markWords(card.querySelector('[data-lm-card-label]'), label, words);
+            });
+            this.galleryShown = shown;
+            this.galleryTotal = cards.length;
+            const row = this.galleryRow();
+            if (row) row.scrollLeft = 0;
+            this.updateGalleryFades();
+        },
+
+        // In the search: Enter adds the first match, Down goes to the cards,
+        // Escape clears what was typed (then, with nothing typed, closes).
+        onSearchKeydown(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const card = this.visibleCards()[0];
+                if (card) this.addCard(card);
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                this.focusCard(this.visibleCards()[0]);
+            } else if (e.key === 'Escape' && this.gallerySearch) {
+                e.preventDefault();
+                this.gallerySearch = '';
+                this.filterGallery();
+            }
+        },
+
+        // On a card: Left and Right (Home, End) move along the row, Up goes
+        // back to the search.
+        onCardKeydown(e) {
+            const cards = this.visibleCards();
+            const at = cards.indexOf(e.currentTarget.closest('[data-lm-card]'));
+            let next;
+            if (e.key === 'ArrowRight') next = at + 1;
+            else if (e.key === 'ArrowLeft') next = at - 1;
+            else if (e.key === 'Home') next = 0;
+            else if (e.key === 'End') next = cards.length - 1;
+            else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const search = this.gallery().querySelector('[data-lm-gallery-search]');
+                if (search) search.focus();
+                return;
+            } else {
+                return;
+            }
+            e.preventDefault();
+            if (next >= 0 && next < cards.length) this.focusCard(cards[next]);
+        },
+
+        focusCard(card) {
+            const hit = card && card.querySelector('.lm-card-hit');
+            if (!hit) return;
+            hit.focus({ preventScroll: true });
+            card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: motionOff() ? 'auto' : 'smooth' });
+        },
+
+        onGalleryKeydown(e) {
+            if (e.key !== 'Escape' || e.defaultPrevented || this._drag) return;
+            e.preventDefault();
+            this.closeGallery();
+        },
+
+        // Escape elsewhere on the page puts the gallery away too, unless a
+        // field (or anything else) took it.
+        onGalleryEscape(e) {
+            if (e.key !== 'Escape' || e.defaultPrevented || !this.galleryOpen || this._drag) return;
+            if (e.target && e.target.closest && e.target.closest(EDITABLE)) return;
+            this.closeGallery();
+        },
+
+        onCardClick(e) {
+            // The click that ends a drag adds nothing more. A keyboard's click
+            // (Enter, Space) has no detail.
+            if (e.detail > 0 && performance.now() - this._dragUpAt < 400) return;
+            const card = e.currentTarget.closest('[data-lm-card]');
+            if (card) this.addCard(card);
+        },
+
+        // addCard adds the card's block after the last, and shows it.
+        addCard(card) {
+            if (!this.editMode) return;
+            const key = card.dataset.key;
+            const layout = this.currentLayout;
+            this.pulse(card, 'is-adding', 360);
+            this.enqueue(async () => {
+                if (layout !== this.currentLayout || !this.grid()) return;
+                const block = await this.insertBlock(key, -1, null);
+                if (!block) return;
+                const smooth = !motionOff();
+                if (this.inView(block)) this.flyIn(card, block);
+                block.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' });
+            });
+        },
+
+        // inView reports whether el shows whole, above the sheet.
+        inView(el) {
+            const rect = el.getBoundingClientRect();
+            const sheet = this.gallery();
+            const bottom = sheet && this.galleryOpen ? sheet.getBoundingClientRect().top : window.innerHeight;
+            return rect.top >= 0 && rect.bottom <= bottom;
+        },
+
+        // flyIn sends a picture of the card to the block it added.
+        flyIn(card, block) {
+            if (motionOff() || !this.galleryOpen) return;
+            const preview = card.querySelector('[data-lm-card-preview]');
+            if (!preview) return;
+            const from = preview.getBoundingClientRect();
+            const to = block.getBoundingClientRect();
+            if (!from.width || !to.width) return;
+            const ghost = staticClone(preview);
+            ghost.classList.add('lm-drag-ghost', 'lm-fly');
+            ghost.style.width = from.width + 'px';
+            ghost.style.height = from.height + 'px';
+            ghost.style.transformOrigin = '0 0';
+            document.body.appendChild(ghost);
+            const flight = ghost.animate([
+                { translate: from.left + 'px ' + from.top + 'px', scale: '1', opacity: 0.95 },
+                { translate: to.left + 'px ' + to.top + 'px', scale: String(to.width / from.width), opacity: 0 },
+            ], { duration: 460, easing: 'cubic-bezier(.32, .72, 0, 1)', fill: 'forwards' });
+            flight.onfinish = () => ghost.remove();
+            flight.oncancel = () => ghost.remove();
+        },
+
+        // pulse sets className on el for ms: an animation's length.
+        pulse(el, className, ms) {
+            el.classList.remove(className);
+            void el.offsetWidth;
+            el.classList.add(className);
+            window.setTimeout(() => el.classList.remove(className), ms);
+        },
+
+        // --- dragging a card onto the grid ---------------------------------------
+        //
+        // A card dragged out of the gallery opens a slot in the grid where its
+        // block will land, under the pointer, and the blocks around it slide
+        // aside to make room. Meanwhile the sheet steps down to a strip:
+        // releasing over the strip, or away from the grid, or pressing
+        // Escape, puts nothing down. Near the top or bottom of the page the
+        // page scrolls. On a touch screen a card lifts when dragged upwards;
+        // sideways, the row scrolls.
+
+        onCardPointerDown(e) {
+            if (!this.editMode || this._drag) return;
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            const card = e.currentTarget.closest('[data-lm-card]');
+            if (!card) return;
+            const drag = {
+                card,
+                key: card.dataset.key,
+                label: card.dataset.label || '',
+                pointerId: e.pointerId,
+                touch: e.pointerType !== 'mouse',
+                startX: e.clientX,
+                startY: e.clientY,
+                x: e.clientX,
+                y: e.clientY,
+                started: false,
+                ghost: null,
+                slot: null,
+                // The grid's blocks as laid out without the slot (dropBoxes).
+                base: null,
+                scroller: null,
+                // Whether the pointer has been clear of the band above the
+                // strip (see autoScrollSpeed).
+                armed: false,
+                frame: 0,
+                dirty: true,
+            };
+            drag.move = (ev) => this.onDragMove(ev);
+            drag.up = (ev) => this.onDragUp(ev);
+            drag.cancel = (ev) => this.onDragCancel(ev);
+            drag.keydown = (ev) => {
+                if (ev.key !== 'Escape') return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                this.cancelDrag();
+            };
+            this._drag = drag;
+            document.addEventListener('pointermove', drag.move, { passive: false });
+            document.addEventListener('pointerup', drag.up);
+            document.addEventListener('pointercancel', drag.cancel);
+            window.addEventListener('keydown', drag.keydown, true);
+            window.addEventListener('blur', drag.cancel);
+        },
+
+        onDragMove(e) {
+            const drag = this._drag;
+            if (!drag || e.pointerId !== drag.pointerId) return;
+            drag.x = e.clientX;
+            drag.y = e.clientY;
+            if (!drag.started) {
+                const dx = drag.x - drag.startX;
+                const dy = drag.y - drag.startY;
+                if (drag.touch) {
+                    // Sideways the row scrolls; upwards the card lifts.
+                    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+                        this.endDrag();
+                        return;
+                    }
+                    if (-dy < 10 || Math.abs(dx) > -dy) return;
+                } else if (Math.hypot(dx, dy) < DRAG_THRESHOLD) {
+                    return;
+                }
+                this.beginDrag(drag);
+            }
+            e.preventDefault();
+            drag.dirty = true;
+        },
+
+        beginDrag(drag) {
+            drag.started = true;
+            drag.scroller = scrollParent(this.grid());
+            const stage = drag.card.querySelector('[data-lm-card-stage]');
+            drag.natural = drag.card.dataset.lmPreview === 'ready' && stage ? stage.offsetHeight : 0;
+            drag.previewWidth = this._previews ? this._previews.width : this.previewWidth();
+            drag.chrome = this.blockChrome();
+            drag.ghost = this.makeGhost(drag);
+            drag.card.classList.add('is-lifted');
+            document.documentElement.classList.add('lm-dragging-card');
+            this.galleryDragging = true;
+            const frame = () => {
+                if (this._drag !== drag) return;
+                this.dragFrame(drag);
+                drag.frame = window.requestAnimationFrame(frame);
+            };
+            drag.frame = window.requestAnimationFrame(frame);
+        },
+
+        // dragFrame runs once a frame while a card is dragged: it scrolls the
+        // page near its edges and follows the pointer.
+        dragFrame(drag) {
+            const speed = this.autoScrollSpeed(drag);
+            if (speed !== 0) {
+                const before = drag.scroller.scrollTop;
+                drag.scroller.scrollTop = before + speed;
+                if (drag.scroller.scrollTop !== before) drag.dirty = true;
+            }
+            if (!drag.dirty) return;
+            drag.dirty = false;
+            this.trackDrag(drag);
+        },
+
+        // trackDrag follows the pointer with the ghost, the sheet's strip and
+        // the slot.
+        trackDrag(drag) {
+            const sheet = this.gallery();
+            const strip = sheet ? sheet.getBoundingClientRect() : null;
+            const overSheet = !!strip && drag.y >= strip.top && drag.x >= strip.left && drag.x <= strip.right;
+            this.galleryOverSheet = overSheet;
+            const index = overSheet ? -1 : this.dropIndex(drag);
+            if (index < 0) this.removeSlot(drag);
+            else this.placeSlot(drag, index);
+            this.moveGhost(drag);
+        },
+
+        // autoScrollSpeed is how far to scroll the page this frame: up near
+        // its top, down just above the sheet's strip. Scrolling down waits
+        // until the pointer has been above that band once, as a card lifted
+        // from low in the sheet starts out in it.
+        autoScrollSpeed(drag) {
+            const scroller = drag.scroller;
+            if (!scroller) return 0;
+            const page = scroller === document.scrollingElement || scroller === document.documentElement;
+            const rect = page ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect();
+            const top = Math.max(0, rect.top);
+            // Where the strip will be, not where the sliding sheet is now.
+            const hint = this.gallery() && this.gallery().querySelector('.lm-gallery-drag-hint');
+            const bottom = Math.min(window.innerHeight, rect.bottom) - (hint ? hint.offsetHeight : 0);
+            const ramp = (depth) => Math.ceil(AUTOSCROLL_MAX_SPEED * Math.min(1, depth / AUTOSCROLL_ZONE));
+            if (drag.y < bottom - AUTOSCROLL_ZONE) drag.armed = true;
+            if (drag.y < top + AUTOSCROLL_ZONE) return -ramp(top + AUTOSCROLL_ZONE - drag.y);
+            if (drag.armed && drag.y > bottom - AUTOSCROLL_ZONE && drag.y < bottom) return ramp(drag.y - (bottom - AUTOSCROLL_ZONE));
+            return 0;
+        },
+
+        // dropIndex is where a block released at the pointer goes among the
+        // blocks of the grid shown: before or after the nearest block, by the
+        // side of it the pointer is on; first above the blocks, last below
+        // them all. -1 away from the grid. The pointer is matched against the
+        // grid as it is without the slot (see dropBoxes): the room the slot
+        // makes never moves the slot itself, so it cannot flicker between two
+        // places under a still pointer, and where it lands depends only on
+        // where the pointer is.
+        dropIndex(drag) {
+            const grid = this.grid();
+            if (!grid) return -1;
+            const rect = grid.getBoundingClientRect();
+            if (drag.x < rect.left - 48 || drag.x > rect.right + 48) return -1;
+            const boxes = this.dropBoxes(drag, grid);
+            if (boxes.length === 0) return 0;
+            const px = drag.x - rect.left - grid.clientLeft;
+            const py = drag.y - rect.top - grid.clientTop;
+            if (py < 0) return 0;
+            if (boxes.every(b => py > b.b)) return boxes.length;
+            let nearest = -1;
+            let distance = Infinity;
+            boxes.forEach((b, i) => {
+                const dx = px < b.l ? b.l - px : px > b.r ? px - b.r : 0;
+                const dy = py < b.t ? b.t - py : py > b.b ? py - b.b : 0;
+                const d = dx * dx + dy * dy;
+                if (d < distance) {
+                    distance = d;
+                    nearest = i;
+                }
+            });
+            const b = boxes[nearest];
+            if (distance === 0) {
+                // A block as wide as the grid is split top and bottom.
+                if (b.r - b.l > grid.clientWidth * 0.7) return py < (b.t + b.b) / 2 ? nearest : nearest + 1;
+                return px < (b.l + b.r) / 2 ? nearest : nearest + 1;
+            }
+            if (py > b.b) return nearest + 1;
+            if (py < b.t) return nearest;
+            return px > b.r ? nearest + 1 : nearest;
+        },
+
+        // dropBoxes are the blocks' boxes in grid coordinates (offsetLeft and
+        // offsetTop: where a block is laid out, not where a sliding one is
+        // drawn), as the grid lays them out without the slot. While the slot
+        // is out they are read afresh; while it is in, the ones read before it
+        // opened are kept, and read again (with the slot taken out for the
+        // moment) if the grid changed meanwhile: another page shown, a block
+        // added or gone, a new width.
+        dropBoxes(drag, grid) {
+            const blocks = this.blockElements();
+            const slot = drag.slot && drag.slot.parentElement === grid ? drag.slot : null;
+            const base = drag.base;
+            if (slot && base && base.grid === grid && base.count === blocks.length && base.width === grid.clientWidth) {
+                return base.boxes;
+            }
+            const next = slot ? slot.nextSibling : null;
+            if (slot) slot.remove();
+            drag.base = {
+                grid,
+                count: blocks.length,
+                width: grid.clientWidth,
+                boxes: blocks.map(el => ({
+                    l: el.offsetLeft,
+                    t: el.offsetTop,
+                    r: el.offsetLeft + el.offsetWidth,
+                    b: el.offsetTop + el.offsetHeight,
+                })),
+            };
+            if (slot) grid.insertBefore(slot, next);
+            return drag.base.boxes;
+        },
+
+        // slotIndex is how many blocks come before the slot.
+        slotIndex(slot) {
+            let n = 0;
+            for (let el = slot.previousElementSibling; el; el = el.previousElementSibling) {
+                if (el.matches('[data-lm-block]')) n++;
+            }
+            return n;
+        },
+
+        placeSlot(drag, index) {
+            const grid = this.grid();
+            const slot = drag.slot;
+            const current = slot && slot.parentElement === grid ? this.slotIndex(slot) : -1;
+            if (index === current) return;
+            if (!drag.slot) drag.slot = this.makeSlot(drag);
+            this.flip(grid, () => {
+                const blocks = this.blockElements();
+                if (index < blocks.length) grid.insertBefore(drag.slot, blocks[index]);
+                else grid.appendChild(drag.slot);
+                this.fitSlot(drag);
+            });
+        },
+
+        removeSlot(drag) {
+            const slot = drag.slot;
+            if (!slot || !slot.parentElement) return;
+            this.flip(slot.parentElement, () => slot.remove());
+        },
+
+        // makeSlot builds the slot: the card's block, as large as it will be
+        // placed, faded behind a dashed outline, under its name.
+        makeSlot(drag) {
+            const slot = document.createElement('div');
+            slot.className = 'lm-drop-slot';
+            slot.setAttribute('data-lm-drop-slot', '');
+            slot.setAttribute('x-ignore', '');
+            slot.setAttribute('aria-hidden', 'true');
+            slot.style.setProperty('--lm-slot-chrome', drag.chrome + 'px');
+            const stage = drag.card.querySelector('[data-lm-card-stage]');
+            if (stage && drag.natural > 0) {
+                const preview = staticClone(stage);
+                preview.className = 'lm-drop-slot-preview';
+                preview.style.width = drag.previewWidth + 'px';
+                preview.style.transform = '';
+                slot.appendChild(preview);
+            }
+            const label = document.createElement('span');
+            label.className = 'lm-drop-slot-label';
+            label.textContent = drag.label;
+            slot.appendChild(label);
+            return slot;
+        },
+
+        // fitSlot gives the slot the masonry rows the block will span.
+        fitSlot(drag) {
+            const slot = drag.slot;
+            const grid = slot.parentElement;
+            if (!grid) return;
+            const preview = slot.querySelector('.lm-drop-slot-preview');
+            let height = 112;
+            if (preview && drag.natural > 0) {
+                const scale = slot.clientWidth > 0 ? slot.clientWidth / drag.previewWidth : 1;
+                preview.style.transform = 'scale(' + scale.toFixed(4) + ')';
+                height = Math.round(drag.natural * scale) + drag.chrome;
+            }
+            const styles = window.getComputedStyle(grid);
+            const rowHeight = parseFloat(styles.getPropertyValue('--lm-masonry-row')) || 8;
+            const rowGap = parseFloat(styles.rowGap) || 16;
+            slot.style.gridRowEnd = 'span ' + Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
+        },
+
+        // blockChrome is what a placed block adds to its content's height in
+        // edit mode: its controls, the gap below them, padding and borders.
+        blockChrome() {
+            const block = this.blockElements()[0];
+            if (!block) return 34;
+            const controls = block.querySelector(':scope > .lm-block-controls');
+            const styles = window.getComputedStyle(block);
+            return (controls ? controls.offsetHeight : 0)
+                + (parseFloat(styles.rowGap) || 0)
+                + (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0)
+                + (parseFloat(styles.borderTopWidth) || 0) + (parseFloat(styles.borderBottomWidth) || 0);
+        },
+
+        // flip makes a change to the grid and slides each block from where it
+        // was drawn to where the change put it.
+        flip(grid, change) {
+            if (motionOff()) {
+                change();
+                return;
+            }
+            const blocks = Array.from(grid.querySelectorAll(':scope > [data-lm-block]'));
+            const before = blocks.map(el => el.getBoundingClientRect());
+            change();
+            blocks.forEach((el, i) => {
+                if (!el.isConnected) return;
+                el.getAnimations().forEach(animation => {
+                    if (animation.id === 'lm-flip') animation.cancel();
+                });
+                const after = el.getBoundingClientRect();
+                const dx = before[i].left - after.left;
+                const dy = before[i].top - after.top;
+                if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+                const slide = el.animate(
+                    [{ transform: 'translate(' + dx + 'px, ' + dy + 'px)' }, { transform: 'none' }],
+                    { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+                );
+                slide.id = 'lm-flip';
+            });
+        },
+
+        // makeGhost is the picture of the card that follows the pointer.
+        makeGhost(drag) {
+            const preview = drag.card.querySelector('[data-lm-card-preview]');
+            const rect = preview.getBoundingClientRect();
+            const ghost = staticClone(preview);
+            ghost.classList.add('lm-drag-ghost');
+            if (drag.natural > 0) {
+                const skeleton = ghost.querySelector('.lm-card-skeleton');
+                if (skeleton) skeleton.remove();
+            }
+            ghost.style.width = rect.width + 'px';
+            ghost.style.height = rect.height + 'px';
+            drag.offsetX = drag.startX - rect.left;
+            drag.offsetY = drag.startY - rect.top;
+            ghost.style.transformOrigin = drag.offsetX + 'px ' + drag.offsetY + 'px';
+            ghost.style.translate = rect.left + 'px ' + rect.top + 'px';
+            document.body.appendChild(ghost);
+            return ghost;
+        },
+
+        // The ghost keeps the point it was picked up by under the pointer,
+        // and shrinks over the grid so the slot shows.
+        moveGhost(drag) {
+            const ghost = drag.ghost;
+            if (!ghost) return;
+            ghost.style.translate = (drag.x - drag.offsetX) + 'px ' + (drag.y - drag.offsetY) + 'px';
+            ghost.classList.toggle('is-over-grid', !!(drag.slot && drag.slot.parentElement));
+        },
+
+        onDragUp(e) {
+            const drag = this._drag;
+            if (!drag || e.pointerId !== drag.pointerId) return;
+            if (!drag.started) {
+                // A click: onCardClick adds the block.
+                this.endDrag();
+                return;
+            }
+            this._dragUpAt = performance.now();
+            drag.x = e.clientX;
+            drag.y = e.clientY;
+            this.trackDrag(drag);
+            const slot = drag.slot && drag.slot.parentElement ? drag.slot : null;
+            if (slot) {
+                // The slot stays: it becomes the block.
+                drag.slot = null;
+                this.dropCard(drag, slot);
+            } else {
+                this.dropGhost(drag.ghost, null);
+            }
+            drag.ghost = null;
+            this.endDrag();
+        },
+
+        onDragCancel(e) {
+            const drag = this._drag;
+            if (!drag || (e && e.type === 'pointercancel' && e.pointerId !== drag.pointerId)) return;
+            this.cancelDrag();
+        },
+
+        // cancelDrag puts the card back: nothing is added.
+        cancelDrag() {
+            const drag = this._drag;
+            if (!drag) return;
+            if (drag.started) {
+                // The release still to come is no click.
+                document.addEventListener('pointerup', () => { this._dragUpAt = performance.now(); }, { once: true, capture: true });
+                this.dropGhost(drag.ghost, null);
+                drag.ghost = null;
+            }
+            this.endDrag();
+        },
+
+        endDrag() {
+            const drag = this._drag;
+            if (!drag) return;
+            this._drag = null;
+            document.removeEventListener('pointermove', drag.move, { passive: false });
+            document.removeEventListener('pointerup', drag.up);
+            document.removeEventListener('pointercancel', drag.cancel);
+            window.removeEventListener('keydown', drag.keydown, true);
+            window.removeEventListener('blur', drag.cancel);
+            if (drag.frame) window.cancelAnimationFrame(drag.frame);
+            if (drag.slot) this.removeSlot(drag);
+            if (drag.ghost) drag.ghost.remove();
+            drag.card.classList.remove('is-lifted');
+            document.documentElement.classList.remove('lm-dragging-card');
+            this.galleryDragging = false;
+            this.galleryOverSheet = false;
+        },
+
+        // dropCard turns the slot into the card's block: the server places
+        // the block at the slot's index, and the block takes the slot's place.
+        dropCard(drag, slot) {
+            const key = drag.key;
+            const layout = this.currentLayout;
+            slot.classList.add('is-pending');
+            this.dropGhost(drag.ghost, slot);
+            this.enqueue(async () => {
+                const grid = this.grid();
+                if (!grid || slot.parentElement !== grid || layout !== this.currentLayout || !this.editMode) {
+                    slot.remove();
+                    return;
+                }
+                await this.insertBlock(key, this.slotIndex(slot), slot);
+            });
+        },
+
+        // dropGhost lets go of the ghost: into the slot, or away.
+        dropGhost(ghost, slot) {
+            if (!ghost) return;
+            if (motionOff()) {
+                ghost.remove();
+                return;
+            }
+            const from = { translate: ghost.style.translate, scale: window.getComputedStyle(ghost).scale, opacity: 1 };
+            let to = { scale: '0.85', opacity: 0 };
+            if (slot) {
+                const target = slot.getBoundingClientRect();
+                const scale = target.width / (ghost.offsetWidth || 1);
+                const [ox, oy] = ghost.style.transformOrigin.split(' ').map(parseFloat);
+                to = {
+                    translate: (target.left - ox * (1 - scale)) + 'px ' + (target.top - oy * (1 - scale)) + 'px',
+                    scale: String(scale),
+                    opacity: 0,
+                };
+            }
+            if (from.scale === 'none') from.scale = '1';
+            const fall = ghost.animate([from, to], { duration: slot ? 240 : 180, easing: 'cubic-bezier(.2, .8, .2, 1)', fill: 'forwards' });
+            fall.onfinish = () => ghost.remove();
+            fall.oncancel = () => ghost.remove();
         },
     });
 

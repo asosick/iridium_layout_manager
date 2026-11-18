@@ -101,8 +101,8 @@ test.describe('persistence', () => {
         const lm = new LayoutPage(page);
         await lm.ready();
         await lm.edit();
-        await page.locator('[data-lm-type-select]').selectOption('short');
-        await Promise.all([page.waitForResponse(r => r.url().includes('/lm/add')), lm.addButton().click()]);
+        await lm.openGallery();
+        await Promise.all([page.waitForResponse(r => r.url().includes('/lm/add')), lm.cardButton('short').click()]);
         await lm.waitForIdle();
         expect(await lm.order(), 'the add rendered').toHaveLength(1);
         await lm.done();

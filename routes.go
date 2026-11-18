@@ -1,7 +1,9 @@
 package layoutmgr
 
 import (
+	"context"
 	"errors"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/url"
@@ -20,7 +22,8 @@ import (
 
 // route suffixes — kept short because they live under the page slug.
 const (
-	routeAdd     = "/lm/add"     // ?type=...&layout=N → the new block
+	routeAdd     = "/lm/add"     // ?type=...&layout=N[&at=I] → the new block
+	routePreview = "/lm/preview" // GET ?type=... → the block, rendered for the gallery
 	routeRemove  = "/lm/remove"  // ?id=...&layout=N → 204
 	routeResize  = "/lm/resize"  // ?id=...&cols=N|delta=±1&layout=N → 204, X-Layout-Manager-Cols
 	routeMove    = "/lm/move"    // ?id=...&delta=±1&layout=N → 204
@@ -39,6 +42,7 @@ const (
 
 func (p *LayoutManagerPage) registerLayoutRoutes(mux wrapper.IMux) {
 	mux.HandleFunc(routeAdd, p.handleAdd)
+	mux.HandleFunc(routePreview, p.handlePreview)
 	mux.HandleFunc(routeRemove, p.handleRemove)
 	mux.HandleFunc(routeResize, p.handleResize)
 	mux.HandleFunc(routeMove, p.handleMove)
@@ -117,8 +121,10 @@ func (p *LayoutManagerPage) editState(w http.ResponseWriter, r *http.Request, fn
 	return state, idx, true
 }
 
-// handleAdd appends a new block of the requested type and answers it, for
-// the client to append to the grid. Form or query: type=<block-key>&layout=N.
+// handleAdd places a new block of the requested type and answers it, for the
+// client to put in the grid. Form or query: type=<block-key>&layout=N, and
+// at=I to insert it before the block at index I (a block dragged from the
+// gallery); without at, or past the end, it goes after the last.
 func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
 	if !allowPost(w, r) {
 		return
@@ -133,9 +139,19 @@ func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown block type", http.StatusBadRequest)
 		return
 	}
+	at := -1
+	if raw := r.FormValue("at"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			http.Error(w, "bad position", http.StatusBadRequest)
+			return
+		}
+		at = n
+	}
 	block := Block{ID: uuid.NewString(), Type: key, Cols: 1}
+	index := 0
 	state, idx, ok := p.edit(w, r, func(l *Layout) bool {
-		l.Blocks = append(l.Blocks, block)
+		index = l.Insert(block, at)
 		return true
 	})
 	if !ok {
@@ -143,7 +159,37 @@ func (p *LayoutManagerPage) handleAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	d := p.pageData(w, r, state, idx)
 	blocks := state.Layouts[idx].Blocks
-	p.writeHTML(w, r, views.Block(d, p.blockData(w, r, d, spec, block, len(blocks)-1, len(blocks))))
+	p.writeHTML(w, r, views.Block(d, p.blockData(w, r, d, spec, block, index, len(blocks))))
+}
+
+// handlePreview renders one block type for the block gallery, which shows it
+// scaled down: the BlockPreviewer's preview when the spec has one, else the
+// block itself. The render request says it is a preview (IsPreview) and gets
+// a front-end id of its own, so its ids never collide with a placed block's.
+// Nothing changes.
+func (p *LayoutManagerPage) handlePreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	key := r.URL.Query().Get("type")
+	spec := p.blockByKey(r, key)
+	if spec == nil {
+		http.Error(w, "unknown block type", http.StatusNotFound)
+		return
+	}
+	ctx := context.WithValue(r.Context(), ctxkeys.FEIDOverride, previewID(key))
+	ctx = context.WithValue(ctx, previewKey{}, true)
+	r = r.WithContext(ctx)
+	w.Header().Set("Cache-Control", "no-store")
+	p.writeHTML(w, r, renderPreview(spec, w, r))
+}
+
+// previewID is the front-end id a block type's preview renders with.
+func previewID(key string) string {
+	h := fnv.New64a()
+	_, _ = io.WriteString(h, key)
+	return "lm-preview-" + strconv.FormatUint(h.Sum64(), 36)
 }
 
 // handleRemove drops a block by ID. Removing a block that is already gone (a

@@ -9,7 +9,8 @@ import (
 
 // BlockSpec describes a block the user can add to the layout grid. The
 // LayoutManagerPage is configured with a set of BlockSpecs and the user picks
-// among them (by Label) in the "Add" dropdown.
+// among them in the block gallery, which shows each by its Label and a
+// preview.
 //
 // Implementations come in two flavours out of the box:
 //
@@ -22,7 +23,8 @@ type BlockSpec interface {
 	// the server knows which BlockSpec to re-render each instance with.
 	Key() string
 
-	// Label is the human-readable name shown in the "Add" dropdown.
+	// Label is the human-readable name shown on the block's gallery card,
+	// and searched.
 	Label() string
 
 	// Render produces the templ.Component for ONE instance of this block, with
@@ -34,6 +36,31 @@ type BlockSpec interface {
 	// blocks that own HTTP routes (e.g. a widget that paginates its data) can
 	// register them. Most blocks will leave this empty.
 	RegisterRoutes(mux RouteRegistrar)
+}
+
+// BlockPreviewer is a BlockSpec with a preview of its own for the block
+// gallery: a still frame in place of a live feed, say. Without one, the
+// gallery shows the block itself, scaled down.
+type BlockPreviewer interface {
+	Preview(w http.ResponseWriter, r *http.Request) templ.Component
+}
+
+type previewKey struct{}
+
+// IsPreview reports whether a block is rendering as a preview in the block
+// gallery rather than placed on the page, so a heavy block (a camera feed, a
+// slow query) can render something lighter there.
+func IsPreview(r *http.Request) bool {
+	preview, _ := r.Context().Value(previewKey{}).(bool)
+	return preview
+}
+
+// renderPreview is what the gallery shows for spec.
+func renderPreview(spec BlockSpec, w http.ResponseWriter, r *http.Request) templ.Component {
+	if p, ok := spec.(BlockPreviewer); ok {
+		return p.Preview(w, r)
+	}
+	return spec.Render(w, r)
 }
 
 // RouteRegistrar is the subset of an HTTP mux a block needs to register routes.

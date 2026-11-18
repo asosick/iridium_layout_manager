@@ -368,21 +368,16 @@ func setSourceKeys(t *testing.T, keys ...string) {
 	resp.Body.Close()
 }
 
-// optionValues lists the block types the Add dropdown offers.
+// optionValues lists the block types the block gallery offers, in order.
 func optionValues(html string) []string {
-	start := strings.Index(html, "data-lm-type-select")
-	if start < 0 {
-		return nil
-	}
-	end := strings.Index(html[start:], "</select>")
 	var out []string
-	for _, m := range optionPattern.FindAllStringSubmatch(html[start:start+end], -1) {
+	for _, m := range cardPattern.FindAllStringSubmatch(html, -1) {
 		out = append(out, m[1])
 	}
 	return out
 }
 
-var optionPattern = regexp.MustCompile(`<option value="([^"]*)"`)
+var cardPattern = regexp.MustCompile(`data-lm-card data-key="([^"]*)"`)
 
 // A placed block whose key the BlockSource stops offering renders as missing
 // and can still be removed.
@@ -400,7 +395,7 @@ func TestABlockSourceKeyThatDisappearsRendersMissingAndCanBeRemoved(t *testing.T
 	}
 
 	setSourceKeys(t, "cam-1")
-	if strings.Contains(c.page(source).body, `<option value="cam-2"`) {
+	if slices.Contains(optionValues(c.page(source).body), "cam-2") {
 		t.Fatal("the vanished block is still offered")
 	}
 	body := c.editGrid(source, 0).body

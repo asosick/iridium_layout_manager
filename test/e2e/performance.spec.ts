@@ -34,10 +34,11 @@ test('S5: one edit renders only what it changes', async ({ page }, testInfo) => 
   const results = [];
   results.push(await measure('resize', '/lm/resize', () => lm.control(short, 'Increase size').click()));
   results.push(await measure('move', '/lm/move', () => lm.control(short, 'Move block right').click()));
-  results.push(await measure('add', '/lm/add', async () => {
-    await page.locator('[data-lm-type-select]').selectOption('short');
-    await lm.addButton().click();
-  }));
+  // The gallery's previews load as it opens, before the add is measured.
+  await lm.openGallery();
+  await lm.waitForIdle();
+  results.push(await measure('add', '/lm/add', () => lm.cardButton('short').click()));
+  await lm.closeGallery();
   const added = (await lm.order()).at(-1)!;
   results.push(await measure('remove', '/lm/remove', () => lm.control(added, 'Remove block').click()));
   // A reorder through the plugin's own handler, as a drop calls it (last:

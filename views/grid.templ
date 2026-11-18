@@ -47,7 +47,14 @@ templ Grid(d *PageData) {
             </div>
         }
         <div class="lm-empty">
-            No blocks yet. Click Edit and pick a block to add.
+            <span class="lm-empty-view">No blocks yet. Click Edit to add some.</span>
+            if len(d.AddOptions) > 0 {
+                <span class="lm-empty-edit">
+                    Nothing here yet.
+                    <button type="button" class="lm-empty-add" @click="openGallery">Add a block</button>
+                    or drag one in from the gallery.
+                </span>
+            }
         </div>
         for _, b := range d.Blocks {
             @Block(d, b)

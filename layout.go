@@ -48,8 +48,8 @@ type LayoutManagerPage struct {
 }
 
 // NewLayoutManagerPage constructs a layout-manager page rooted at the given
-// slug. Until you add at least one Block(...) the "Add" dropdown will be empty
-// — see Blocks().
+// slug. Until you add at least one Block(...) there is nothing to add — see
+// Blocks().
 //
 // Defaults:
 //   - GridColumns = 2
@@ -78,8 +78,8 @@ func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 
 // --- builders ----------------------------------------------------------------
 
-// Blocks registers the BlockSpecs the user can pick from in the "Add"
-// dropdown. Order is preserved.
+// Blocks registers the BlockSpecs the user can pick from in the block
+// gallery. Order is preserved.
 func (p *LayoutManagerPage) Blocks(blocks ...BlockSpec) *LayoutManagerPage {
 	p.blocks = blocks
 	return p
@@ -87,7 +87,7 @@ func (p *LayoutManagerPage) Blocks(blocks ...BlockSpec) *LayoutManagerPage {
 
 // BlockSource adds BlockSpecs the page asks for on every request, after
 // those given to Blocks: for blocks that come and go while the app runs, such
-// as one per record in a database. They are offered in the "Add" dropdown,
+// as one per record in a database. They are offered in the block gallery,
 // added, rendered and removed like any other, but register no routes, so a
 // WidgetBlock whose widget has routes belongs in Blocks. A placed block whose
 // spec the source stops returning renders as a missing block.

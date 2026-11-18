@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { openEditor } from './support/layout';
+import { LayoutPage, openEditor } from './support/layout';
 
 /** The block gallery: the sheet "Add block" opens, its cards and their previews. */
 test.describe('block gallery', () => {
@@ -191,6 +191,22 @@ test.describe('block gallery', () => {
     await expect(lm.gallery()).toBeHidden();
     await lm.edit();
     await expect(lm.gallery(), 'it stays shut until asked for').toBeHidden();
+  });
+
+  test('leaving the page while previews load reports no failed request', async ({ page }) => {
+    // slow takes 300ms to render, so its preview is still loading as the
+    // page is left; a browser that reports cancelled fetches (WebKit) fails
+    // the test through its page problems.
+    for (const next of ['/admin/noreorder', '/admin/default']) {
+      const lm = new LayoutPage(page, 'noresize');
+      await lm.goto();
+      const loading = page.waitForRequest(r => r.url().includes('/lm/preview?type=slow'));
+      await lm.editButton().click();
+      // Opening the gallery starts its previews, if editing has not already.
+      await lm.addButton().click();
+      await loading;
+      await page.goto(next);
+    }
   });
 
   test('an empty page in edit mode opens the gallery from its empty state', async ({ page }) => {

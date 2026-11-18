@@ -198,6 +198,12 @@
                 zenEscape: (e) => this.onZenEscape(e),
                 galleryEscape: (e) => this.onGalleryEscape(e),
                 resize: () => this.galleryResized(),
+                // Leaving the page: previews still loading are cancelled, so
+                // the browser does not report them as failed fetches.
+                leave: () => this.abortPreviews(),
+                back: (e) => {
+                    if (e.persisted) this.resumePreviews();
+                },
                 // SortableJS reports a finished drag as a 'sort' event on the
                 // grid; a sortable list inside a block reports its own.
                 sort: (e) => {
@@ -210,6 +216,9 @@
             // cannot trigger another action on the same key press.
             window.addEventListener('keydown', this._listeners.zenEscape, true);
             window.addEventListener('resize', this._listeners.resize);
+            window.addEventListener('beforeunload', this._listeners.leave);
+            window.addEventListener('pagehide', this._listeners.leave);
+            window.addEventListener('pageshow', this._listeners.back);
             root.addEventListener('sort', this._listeners.sort);
             // Entering edit mode starts the gallery's first previews loading;
             // leaving it puts the gallery away.
@@ -228,9 +237,13 @@
             document.removeEventListener('keydown', l.galleryEscape);
             window.removeEventListener('keydown', l.zenEscape, true);
             window.removeEventListener('resize', l.resize);
+            window.removeEventListener('beforeunload', l.leave);
+            window.removeEventListener('pagehide', l.leave);
+            window.removeEventListener('pageshow', l.back);
             this._root.removeEventListener('sort', l.sort);
             this._listeners = null;
             this.cancelDrag();
+            this.abortPreviews();
             if (this._previews) {
                 this._previews.observer.disconnect();
                 this._previews.resize.disconnect();
@@ -728,6 +741,10 @@
                 width: this.previewWidth(),
                 queue: [],
                 active: 0,
+                // Each loading card's request abort, and whether the page is
+                // being left (see abortPreviews).
+                aborts: new Map(),
+                leaving: false,
                 observer: new IntersectionObserver((entries) => {
                     entries.forEach(entry => {
                         if (entry.isIntersecting) this.queuePreview(entry.target);
@@ -757,7 +774,7 @@
 
         queuePreview(card) {
             const previews = this._previews;
-            if (!previews || card.dataset.lmPreview) return;
+            if (!previews || previews.leaving || card.dataset.lmPreview) return;
             card.dataset.lmPreview = 'queued';
             previews.queue.push(card);
             this.pumpPreviews();
@@ -782,18 +799,66 @@
         // finished drawing, then fades in, so a half-drawn block never shows.
         async loadPreview(card) {
             const stage = card.querySelector('[data-lm-card-stage]');
-            if (!stage || !card.isConnected || !this._previews) return;
+            const previews = this._previews;
+            if (!stage || !card.isConnected || !previews) return;
             card.dataset.lmPreview = 'loading';
-            stage.style.width = this._previews.width + 'px';
+            stage.style.width = previews.width + 'px';
+            // htmx hands its request to htmx:before:request: keep its abort,
+            // and have a fetch cancelled as the page is left answer nothing
+            // (204, which htmx does not swap) rather than fail, which htmx
+            // and the browser would report as an error.
+            const capture = (e) => {
+                const ctx = e.detail && e.detail.ctx;
+                if (!ctx || !ctx.request) return;
+                if (ctx.request.abort) previews.aborts.set(card, ctx.request.abort);
+                const send = ctx.fetch || window.fetch.bind(window);
+                ctx.fetch = (url, init) => send(url, init).catch((err) => {
+                    if (previews.leaving) return new Response(null, { status: 204 });
+                    throw err;
+                });
+            };
+            stage.addEventListener('htmx:before:request', capture);
             try {
                 await window.htmx.ajax('GET', card.dataset.previewUrl, { source: stage, target: stage, swap: 'innerHTML' });
             } catch (err) {
-                console.warn('[layoutmgr] preview of', card.dataset.key, err);
+                if (!previews.leaving) console.warn('[layoutmgr] preview of', card.dataset.key, err);
+            } finally {
+                stage.removeEventListener('htmx:before:request', capture);
+                previews.aborts.delete(card);
+            }
+            // Cancelled as the page was left: it loads again if the page
+            // comes back (from the back/forward cache).
+            if (previews.leaving && stage.childElementCount === 0) {
+                delete card.dataset.lmPreview;
+                return;
             }
             if (stage.childElementCount > 0) await this.previewSettled(stage);
             card.dataset.lmPreview = stage.childElementCount > 0 ? 'ready' : 'failed';
             this.fitPreview(card);
             if (this._previews) this._previews.resize.observe(stage);
+        },
+
+        // abortPreviews cancels the previews loading and waiting to: the page
+        // is being left.
+        abortPreviews() {
+            const previews = this._previews;
+            if (!previews) return;
+            previews.leaving = true;
+            previews.queue.forEach(card => { delete card.dataset.lmPreview; });
+            previews.queue = [];
+            previews.aborts.forEach(abort => {
+                try { abort(); } catch (err) { /* already over */ }
+            });
+            previews.aborts.clear();
+        },
+
+        // resumePreviews loads the previews again after the page came back
+        // from the back/forward cache with its loading cancelled.
+        resumePreviews() {
+            const previews = this._previews;
+            if (!previews || !previews.leaving) return;
+            previews.leaving = false;
+            if (this.editMode) this.queueFirstPreviews();
         },
 
         // previewSettled waits, up to PREVIEW_SETTLE_MAX, for a block that

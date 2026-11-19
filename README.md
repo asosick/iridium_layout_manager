@@ -223,6 +223,8 @@ Compact, Tight or None. A page starts with `GridColumns` and the spacing its
 vertical padding gives. Like any other edit, Done keeps the choice and Reset
 or Cancel undoes it.
 
+![The page settings dialog over a dashboard in edit mode: four columns and compact spacing chosen for the page shown](docs/images/settings.png)
+
 When a page's number of columns changes, a block as wide as the page stays as
 wide as the page; the others keep their span, up to the new number of columns.
 The choices are kept with each page in the `LayoutState`
@@ -273,8 +275,9 @@ Edits change the page in place: remove, resize, move and reorder answer 204
 one new block (placed at `at=I` when a card was dropped before the block at
 index I, else after the last). The other blocks are never re-rendered, so widgets keep their
 state (a table's sort and page, a chart) and focus stays where it was. Only
-switching, adding or removing a page, entering edit mode with unsaved changes,
-and Reset load a whole grid. Renaming a page answers the name kept.
+switching, adding or removing a page, applying the page settings, entering
+edit mode with unsaved changes, and Reset load a whole grid. Renaming a page
+answers the name kept.
 
 Drag-to-reorder uses the Alpine Sort plugin that Iridium's core JS bundle
 already ships with. After a drop the page posts the order the grid shows
@@ -287,8 +290,8 @@ reloads the stored order.
 `go run ./cmd/demo` serves a showcase panel at
 http://127.0.0.1:8088/admin/dashboard (`DEMO_PORT` picks another port): ten
 blocks to arrange, among them Iridium charts, stats and tables, a static
-note and a dynamic block that uses `IsPreview`. The screenshots above are
-of it.
+note and a dynamic block that uses `IsPreview`, with the page settings on.
+The screenshots above are of it.
 
 `go test ./...` runs the integration tests: real Iridium panel routes over
 HTTPS, with CSRF and encrypted session cookies, through the test app in

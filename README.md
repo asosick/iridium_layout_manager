@@ -29,6 +29,9 @@ go get github.com/asosick/iridium_layout_manager@latest
 package main
 
 import (
+    "net/http"
+
+    "github.com/a-h/templ"
     "github.com/goiridium/iridium/core/panel"
     "github.com/goiridium/iridium/core/widget/stats"
 
@@ -38,7 +41,7 @@ import (
 
 func main() {
     salesStats := stats.New("sales-stats").
-        SetName("Sales Today")
+        Label("Sales Today")
         // ... configure stats ...
 
     dashboard := layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
@@ -53,7 +56,8 @@ func main() {
         ).
         GridColumns(3)
 
-    p := panel.New("/admin").Pages(dashboard)
+    mux := http.NewServeMux()
+    p := panel.New(mux).Path("admin").PanelItems(dashboard)
     // ... mount the panel as usual ...
 }
 ```

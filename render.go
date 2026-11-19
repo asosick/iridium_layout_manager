@@ -46,9 +46,18 @@ func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, sta
 
 	count := p.pageCount(state)
 	currentLayout = max(0, min(currentLayout, count-1))
+	// The page shown: its columns and spacing.
+	var shown Layout
+	if currentLayout < len(state.Layouts) {
+		shown = state.Layouts[currentLayout]
+	}
 
 	d := &views.PageData{
-		GridColumns:    p.gridCols,
+		GridColumns:    p.columnsOf(shown),
+		Spacing:        string(p.spacingOf(shown)),
+		Settings:       p.settings,
+		MaxColumns:     p.maxColumns(),
+		ToolbarRight:   p.toolbarRight,
 		ShowLockButton: p.showLockBtn,
 		AllowReorder:   p.allowReorder,
 		AllowResize:    p.allowResize,
@@ -75,6 +84,7 @@ func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, sta
 			AddPage:    prefix + routeAddPage,
 			RemovePage: prefix + routeRemovePage,
 			RenamePage: prefix + routeRenamePage,
+			Settings:   prefix + routeSettings,
 		},
 	}
 
@@ -135,7 +145,7 @@ func (p *LayoutManagerPage) blockData(w http.ResponseWriter, r *http.Request, d 
 	idQuery := "?id=" + url.QueryEscape(b.ID)
 	return views.BlockData{
 		ID:           b.ID,
-		Cols:         clampCols(b.Cols, p.gridCols),
+		Cols:         clampCols(b.Cols, d.GridColumns),
 		Renderer:     comp,
 		RemoveURL:    d.URLs.Remove + idQuery + layoutQuery,
 		ResizeURL:    d.URLs.Resize + idQuery + layoutQuery,

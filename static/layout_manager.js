@@ -54,6 +54,13 @@
     const motionOff = () => document.documentElement.dataset.iridiumAnimationMode === 'none'
         || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    // The space between a grid's rows, from its computed styles. A page set
+    // to no spacing has none: 0 is a gap, not a missing one.
+    const rowGapOf = (styles) => {
+        const gap = parseFloat(styles.rowGap);
+        return Number.isFinite(gap) ? gap : 16;
+    };
+
     // An inert document to build copies in: nothing in it loads.
     let inert = null;
 
@@ -181,6 +188,14 @@
         galleryTotal: 0,
         galleryDragging: false,
         galleryOverSheet: false,
+        // The page settings: the shown page's columns and chosen spacing
+        // ('' follows the vertical padding), from its grid (data-lm-columns,
+        // data-lm-spacing); whether the dialog is open, and the choices in it.
+        pageColumns: 0,
+        pageSpacing: '',
+        settingsOpen: false,
+        settingsColumns: '',
+        settingsSpacing: '',
         // The page root. Not this.$el: in a method an Alpine directive calls
         // (@click on a toolbar button), $el is that button.
         _root: null,
@@ -211,6 +226,7 @@
                 addPage: data.lmAddPageUrl || '',
                 removePage: data.lmRemovePageUrl || '',
                 renamePage: data.lmRenamePageUrl || '',
+                settings: data.lmSettingsUrl || '',
             };
             this.lockAfterDone = data.lmLockAfterDone !== 'false';
             this.editMode = data.lmEditDefault === 'true';
@@ -306,6 +322,8 @@
             let names = null;
             try { names = JSON.parse(grid.dataset.lmNames || 'null'); } catch (err) { /* numbers below */ }
             this.pages = Array.isArray(names) ? names : this.populated.map(() => '');
+            this.pageColumns = parseInt(grid.dataset.lmColumns || '', 10) || 1;
+            this.pageSpacing = grid.dataset.lmSpacing || '';
             // The page shown can differ from the one asked for: a page added
             // or removed, or one the committed layout does not have.
             const shown = parseInt(grid.dataset.lmShown || '', 10);
@@ -496,9 +514,11 @@
         },
 
         // 1..9 switches page, unless the key is typed into a field or comes
-        // with a modifier: Ctrl/Cmd+digit belongs to the browser's tabs.
+        // with a modifier: Ctrl/Cmd+digit belongs to the browser's tabs. Not
+        // behind the settings dialog either.
         onHotkey(e) {
             if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+            if (this.settingsOpen) return;
             if (this.pages.length <= 1 || !/^[1-9]$/.test(e.key)) return;
             if (e.target && e.target.closest && e.target.closest(EDITABLE)) return;
             const n = parseInt(e.key, 10);
@@ -575,6 +595,85 @@
             e.preventDefault();
             e.stopPropagation();
             this.exitZen();
+        },
+
+        // --- page settings --------------------------------------------------------
+        //
+        // The dialog chooses the shown page's columns and the space between
+        // its blocks. Apply is an edit like any other: Done keeps it, Reset or
+        // Cancel undoes it.
+
+        settingsDialog() {
+            return this._root.querySelector('[data-lm-settings]');
+        },
+
+        // defaultSpacing is the spacing the page's vertical padding gives its
+        // blocks, which a page has until the user chooses another.
+        defaultSpacing() {
+            const padding = this._root.dataset.verticalPadding;
+            if (padding === 'compact') return 'compact';
+            if (padding === 'none') return 'tight';
+            return 'normal';
+        },
+
+        shownSpacing() {
+            return this.pageSpacing || this.defaultSpacing();
+        },
+
+        openSettings() {
+            const dialog = this.settingsDialog();
+            if (!dialog || !this.editMode || dialog.open) return;
+            this.closeGallery();
+            this.settingsColumns = String(this.pageColumns);
+            this.settingsSpacing = this.shownSpacing();
+            this.settingsOpen = true;
+            dialog.showModal();
+            // The columns chosen has the focus, so the arrow keys change them.
+            this.$nextTick(() => {
+                const checked = dialog.querySelector('input[name="lm-columns"]:checked');
+                if (checked) checked.focus();
+            });
+        },
+
+        closeSettings() {
+            const dialog = this.settingsDialog();
+            if (dialog && dialog.open) dialog.close();
+        },
+
+        // The dialog closed: Escape, Cancel, its close button, a click beside
+        // it, or Apply.
+        settingsClosed() {
+            this.settingsOpen = false;
+        },
+
+        settingsChanged() {
+            return this.settingsColumns !== String(this.pageColumns)
+                || this.settingsSpacing !== this.shownSpacing();
+        },
+
+        settingsDescription() {
+            if (this.pages.length <= 1) return 'How this page lays out its blocks.';
+            const name = this.pages[this.currentLayout];
+            return name
+                ? 'How “' + name + '” lays out its blocks.'
+                : 'How page ' + this.pageNumber(this.currentLayout) + ' lays out its blocks.';
+        },
+
+        // applySettings sends the choices, then shows the page's grid as the
+        // server laid it out. The spacing the page would have anyway is sent
+        // as none chosen, so the page keeps following its vertical padding.
+        applySettings() {
+            if (!this.settingsChanged() || !this._urls.settings) {
+                this.closeSettings();
+                return;
+            }
+            const params = new URLSearchParams({
+                layout: String(this.currentLayout),
+                columns: this.settingsColumns,
+                spacing: this.settingsSpacing === this.defaultSpacing() ? '' : this.settingsSpacing,
+            });
+            this.closeSettings();
+            this.enqueue(() => this.swapGrid('POST', this._urls.settings + '?' + params.toString()));
         },
 
         // --- order ----------------------------------------------------------------
@@ -1381,7 +1480,7 @@
             }
             const styles = window.getComputedStyle(grid);
             const rowHeight = parseFloat(styles.getPropertyValue('--lm-masonry-row')) || 8;
-            const rowGap = parseFloat(styles.rowGap) || 16;
+            const rowGap = rowGapOf(styles);
             slot.style.gridRowEnd = 'span ' + Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
         },
 
@@ -1744,7 +1843,7 @@
             if (!grid) return;
             const gridStyles = window.getComputedStyle(grid);
             const rowHeight = parseFloat(gridStyles.getPropertyValue('--lm-masonry-row')) || 8;
-            const rowGap = parseFloat(gridStyles.rowGap) || 16;
+            const rowGap = rowGapOf(gridStyles);
             const styles = window.getComputedStyle(el);
             const content = el.querySelector(':scope > .lm-block-content');
             const controls = el.querySelector(':scope > .lm-block-controls');

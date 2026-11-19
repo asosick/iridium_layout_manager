@@ -10,7 +10,8 @@ import "encoding/json"
 //   - Type matches a BlockSpec.Key() — the LayoutManagerPage looks up the spec
 //     by Type to render the block.
 //   - Cols is the column span this instance takes inside the layout grid,
-//     clamped to [1, GridColumns].
+//     clamped to [1, the page's columns] (GridColumns, or the number the
+//     user chose in the settings).
 type Block struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
@@ -22,8 +23,41 @@ type Block struct {
 // between layouts with the page selector buttons / 1..9 hotkeys.
 type Layout struct {
 	// Name labels the page's selector button; empty shows its number.
-	Name   string  `json:"name,omitempty"`
-	Blocks []Block `json:"blocks"`
+	Name string `json:"name,omitempty"`
+	// Columns is the number of columns the user chose for the page in the
+	// settings dialog (see LayoutManagerPage.Settings); 0 leaves it at
+	// GridColumns. It applies only while the settings are on.
+	Columns int `json:"columns,omitempty"`
+	// Spacing is the space between the page's blocks the user chose in the
+	// settings dialog; empty follows the page's vertical padding. It applies
+	// only while the settings are on.
+	Spacing Spacing `json:"spacing,omitempty"`
+	Blocks  []Block `json:"blocks"`
+}
+
+// Spacing is the space a page leaves between its blocks, across a row and
+// down it alike.
+type Spacing string
+
+// The spacings a user can choose in the settings dialog. SpacingDefault
+// follows the page's vertical padding: SpacingNormal by default,
+// SpacingCompact with CompactVerticalPadding and SpacingTight with
+// NoVerticalPadding.
+const (
+	SpacingDefault Spacing = ""
+	SpacingNormal  Spacing = "normal"  // 1rem
+	SpacingCompact Spacing = "compact" // 0.5rem
+	SpacingTight   Spacing = "tight"   // 0.25rem
+	SpacingNone    Spacing = "none"    // blocks touch
+)
+
+// valid reports whether s is one of the spacings above.
+func (s Spacing) valid() bool {
+	switch s {
+	case SpacingDefault, SpacingNormal, SpacingCompact, SpacingTight, SpacingNone:
+		return true
+	}
+	return false
 }
 
 // LayoutState is the full serialized state for one user. It holds one or more

@@ -10,13 +10,23 @@ import (
 // PageData carries everything the page template needs at render time.
 // Constructed by LayoutManagerPage.GetComponent() per request.
 type PageData struct {
-    GridColumns    int
+    GridColumns    int               // the shown page's columns
     Blocks         []BlockData       // currently-placed blocks
     AddOptions     []BlockOption     // the block gallery's cards
     ShowLockButton bool
     AllowReorder   bool
     AllowResize    bool
     ZenEnabled     bool
+    // Settings: edit mode has a Settings button, which opens the settings
+    // dialog. MaxColumns is the most columns it offers.
+    Settings   bool
+    MaxColumns int
+    // Spacing is the space between the shown page's blocks chosen in the
+    // settings ("normal", "compact", "tight", "none"); "" follows the page's
+    // vertical padding.
+    Spacing string
+    // ToolbarRight puts the toolbar at the right of a header with no title.
+    ToolbarRight bool
     // Multi-layout (multi-page) support.
     LayoutCount   int      // pages in the layout state shown (>=1)
     CurrentLayout int      // index of the layout currently rendered
@@ -58,6 +68,22 @@ type PageURLs struct {
     AddPage    string
     RemovePage string
     RenamePage string
+    // Settings: ?layout=N&columns=N&spacing=… → the page's grid.
+    Settings string
+}
+
+// SpacingOption is one choice of spacing in the settings dialog.
+type SpacingOption struct {
+    Value string
+    Label string
+}
+
+// SpacingOptions are the settings dialog's spacings, widest first.
+var SpacingOptions = []SpacingOption{
+    {Value: "normal", Label: "Normal"},
+    {Value: "compact", Label: "Compact"},
+    {Value: "tight", Label: "Tight"},
+    {Value: "none", Label: "None"},
 }
 
 // PageNameLength is the longest page name the server keeps, in characters.
@@ -112,11 +138,72 @@ templ LayoutManagerContent(d *PageData) {
     if len(d.AddOptions) > 0 {
         @Gallery(d)
     }
+    if d.Settings {
+        @SettingsDialog(d)
+    }
+}
+
+// SettingsDialog is the page settings: how many columns the page shown has
+// and how much space it leaves between its blocks. It is a modal <dialog>
+// laid out as Iridium's own modals are. Apply sends the choice to the
+// server, through the page's queue, as an edit like any other.
+//
+// The dialog element fills the window, so a click beside its panel lands on
+// the dialog itself and closes it.
+templ SettingsDialog(d *PageData) {
+    <dialog
+        class="lm-settings"
+        data-lm-settings
+        aria-labelledby="lm-settings-title"
+        aria-describedby="lm-settings-description"
+        @close="settingsClosed"
+        @click.self="closeSettings"
+    >
+        <form class="ir-modal-dialog lm-settings-panel" @submit.prevent="applySettings">
+            <button type="button" class="ir-modal-close-btn" aria-label="Close" @click="closeSettings">
+                @icons.X.Component()
+            </button>
+            <div class="ir-modal-content">
+                <div class="ir-modal-header">
+                    <h2 id="lm-settings-title" class="ir-modal-title">Page settings</h2>
+                    <p id="lm-settings-description" class="ir-modal-description" x-text="settingsDescription()"></p>
+                </div>
+                <fieldset class="lm-settings-field">
+                    <legend class="ir-field-label">Columns</legend>
+                    <div class="lm-segmented">
+                        for n := 1; n <= d.MaxColumns; n++ {
+                            <label class="lm-segment">
+                                <input type="radio" name="lm-columns" value={ strconv.Itoa(n) } x-model="settingsColumns"/>
+                                <span>{ strconv.Itoa(n) }</span>
+                            </label>
+                        }
+                    </div>
+                    <p class="lm-settings-hint">Blocks keep their width; full-width blocks stay full width.</p>
+                </fieldset>
+                <fieldset class="lm-settings-field">
+                    <legend class="ir-field-label">Space between blocks</legend>
+                    <div class="lm-segmented">
+                        for _, s := range SpacingOptions {
+                            <label class="lm-segment">
+                                <input type="radio" name="lm-spacing" value={ s.Value } x-model="settingsSpacing"/>
+                                <span class="lm-spacing-glyph" data-spacing={ s.Value } aria-hidden="true"><i></i><i></i><i></i></span>
+                                <span>{ s.Label }</span>
+                            </label>
+                        }
+                    </div>
+                </fieldset>
+                <div class="ir-modal-footer">
+                    <button type="button" class="ir-btn-outline" @click="closeSettings">Cancel</button>
+                    <button type="submit" class="ir-btn-primary" data-lm-settings-apply :disabled="!settingsChanged()">Apply</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
 }
 
 // PageAttributes binds layout-manager state to Iridium's native page root.
 func PageAttributes(d *PageData) templ.Attributes {
-    return templ.Attributes{
+    attrs := templ.Attributes{
         "data-lm-page":            "true",
         "x-data":                  "layout_manager",
         ":class":                  "rootClass()",
@@ -134,6 +221,13 @@ func PageAttributes(d *PageData) templ.Attributes {
         "data-lm-lock-after-done": strconv.FormatBool(d.ShowLockButton),
         "data-lm-edit-default":    strconv.FormatBool(!d.ShowLockButton),
     }
+    if d.Settings {
+        attrs["data-lm-settings-url"] = d.URLs.Settings
+    }
+    if d.ToolbarRight {
+        attrs["data-lm-toolbar-align"] = "right"
+    }
+    return attrs
 }
 
 // HeaderAttributes keeps Zen mode inside the same Alpine-owned page shell.
@@ -155,6 +249,11 @@ templ Toolbar(d *PageData) {
         @Selectors(d)
         <div class="lm-controls">
             <div x-show="editMode" x-cloak class="lm-controls">
+                // The page settings sit with the page actions; with no page
+                // buttons, here.
+                if d.Settings && !hasSelectors(d) {
+                    @SettingsToggle("ir-btn-icon-outline")
+                }
                 if len(d.AddOptions) > 0 {
                     // Opens the block gallery (see Gallery).
                     <button
@@ -219,9 +318,9 @@ templ Toolbar(d *PageData) {
 // as they are added, removed and renamed. In edit mode the strip ends with
 // the page actions: rename the page shown (a double-click on a page does the
 // same), and, when the user decides how many pages there are, remove it or
-// add one.
+// add one; then its settings.
 templ Selectors(d *PageData) {
-    if d.AddablePages || d.LayoutCount > 1 {
+    if hasSelectors(d) {
         <div id="lm-selectors" class="lm-selectors" x-show="selectorsShown()" x-cloak>
             <template x-for="(name, i) in pages" :key="i">
                 <span class="lm-page-tab" x-show="pageShown(i)">
@@ -269,6 +368,31 @@ templ Selectors(d *PageData) {
                     @icons.Plus.Component()
                 </button>
             }
+            if d.Settings {
+                @SettingsToggle("ir-btn-outline lm-page-action")
+            }
         </div>
     }
+}
+
+// hasSelectors reports whether the toolbar has page buttons: with more than
+// one page, or pages the user adds.
+func hasSelectors(d *PageData) bool {
+    return d.AddablePages || d.LayoutCount > 1
+}
+
+// SettingsToggle opens the page settings (see SettingsDialog), in edit mode.
+templ SettingsToggle(class string) {
+    <button
+        type="button"
+        class={ class }
+        data-lm-settings-toggle
+        x-show="editMode"
+        aria-haspopup="dialog"
+        aria-label="Page settings"
+        title="Page settings"
+        @click="openSettings"
+    >
+        @icons.Settings.Component()
+    </button>
 }

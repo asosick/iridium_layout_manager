@@ -35,6 +35,7 @@ const (
 	routeAddPage    = "/lm/pages/add"    // → the new page's grid
 	routeRemovePage = "/lm/pages/remove" // ?layout=N → the grid of the page before
 	routeRenamePage = "/lm/pages/rename" // ?layout=N, form name=… → the name kept
+	routeSettings   = "/lm/settings"     // ?layout=N, form columns=…&spacing=… → the grid
 
 	nextLayoutHeader = "X-Iridium-Layout-Manager-Next-Layout"
 	colsHeader       = "X-Layout-Manager-Cols"
@@ -53,6 +54,7 @@ func (p *LayoutManagerPage) registerLayoutRoutes(mux wrapper.IMux) {
 	mux.HandleFunc(routeAddPage, p.handleAddPage)
 	mux.HandleFunc(routeRemovePage, p.handleRemovePage)
 	mux.HandleFunc(routeRenamePage, p.handleRenamePage)
+	mux.HandleFunc(routeSettings, p.handleSettings)
 }
 
 var errBadLayout = errors.New("invalid layout")
@@ -212,7 +214,7 @@ func (p *LayoutManagerPage) handleRemove(w http.ResponseWriter, r *http.Request)
 
 // handleResize updates a block's column span and answers the new span in a
 // header. Query: ?id=...&cols=N, or delta=±1. cols=0 toggles between 1 and
-// GridColumns (the filament behaviour).
+// the page's columns (the filament behaviour).
 func (p *LayoutManagerPage) handleResize(w http.ResponseWriter, r *http.Request) {
 	if !allowPost(w, r) {
 		return
@@ -230,6 +232,7 @@ func (p *LayoutManagerPage) handleResize(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "unknown block", http.StatusBadRequest)
 			return false
 		}
+		full := p.columnsOf(*l)
 		switch {
 		case deltaStr != "":
 			delta, err := strconv.Atoi(deltaStr)
@@ -237,7 +240,7 @@ func (p *LayoutManagerPage) handleResize(w http.ResponseWriter, r *http.Request)
 				http.Error(w, "bad delta", http.StatusBadRequest)
 				return false
 			}
-			b.Cols = clampCols(b.Cols+delta, p.gridCols)
+			b.Cols = clampCols(b.Cols+delta, full)
 		case colsStr != "":
 			n, err := strconv.Atoi(colsStr)
 			if err != nil {
@@ -246,13 +249,13 @@ func (p *LayoutManagerPage) handleResize(w http.ResponseWriter, r *http.Request)
 			}
 			if n == 0 {
 				// Toggle full ↔ 1 (filament behaviour).
-				if clampCols(b.Cols, p.gridCols) == p.gridCols {
+				if clampCols(b.Cols, full) == full {
 					b.Cols = 1
 				} else {
-					b.Cols = p.gridCols
+					b.Cols = full
 				}
 			} else {
-				b.Cols = clampCols(n, p.gridCols)
+				b.Cols = clampCols(n, full)
 			}
 		default:
 			http.Error(w, "missing cols or delta", http.StatusBadRequest)
@@ -465,6 +468,64 @@ func (p *LayoutManagerPage) handleRenamePage(w http.ResponseWriter, r *http.Requ
 	}); ok {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, name)
+	}
+}
+
+// handleSettings applies the settings dialog to the page ?layout=N and
+// answers its grid. Form values: columns=N (1 to MaxColumns) and spacing (one
+// of the Spacing values; empty follows the page's vertical padding); either
+// left out stays as it is. A block as wide as the page stays as wide as the
+// page; the others keep their span, up to the new number of columns.
+func (p *LayoutManagerPage) handleSettings(w http.ResponseWriter, r *http.Request) {
+	if !allowPost(w, r) {
+		return
+	}
+	if !p.settings {
+		http.Error(w, "page settings are off here", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	columns := 0
+	if raw := r.FormValue("columns"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > p.maxColumns() {
+			http.Error(w, "bad columns", http.StatusBadRequest)
+			return
+		}
+		columns = n
+	}
+	spacing, setSpacing := Spacing(r.FormValue("spacing")), r.Form.Has("spacing")
+	if !spacing.valid() {
+		http.Error(w, "bad spacing", http.StatusBadRequest)
+		return
+	}
+	state, idx, ok := p.edit(w, r, func(l *Layout) bool {
+		if columns > 0 {
+			before := p.columnsOf(*l)
+			for i := range l.Blocks {
+				// A page of one column has every block as wide as it: those
+				// keep their span.
+				if before > 1 && l.Blocks[i].Cols >= before {
+					l.Blocks[i].Cols = columns
+				}
+			}
+			// The number the page starts with is kept as no choice, so the
+			// page follows GridColumns if it changes.
+			l.Columns = columns
+			if columns == p.gridCols {
+				l.Columns = 0
+			}
+		}
+		if setSpacing {
+			l.Spacing = spacing
+		}
+		return true
+	})
+	if ok {
+		p.writeHTML(w, r, p.renderGrid(w, r, state, idx, true))
 	}
 }
 

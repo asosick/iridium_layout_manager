@@ -198,6 +198,7 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 			layoutmgr.DynamicBlock("activity", "Live activity", liveActivity),
 		).
 		GridColumns(3).
+		Settings().
 		ShowLockButton(true).
 		Reorderable(true).
 		Resizable(true).

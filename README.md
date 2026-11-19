@@ -166,12 +166,21 @@ layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     RenamablePages(true).      // users can name their pages (default true)
     Heading("My Dashboard").   // override the H1
     CompactVerticalPadding().  // Iridium's tighter page spacing (or NoVerticalPadding)
+    Settings().                // users choose each page's columns and spacing
+    MaxColumns(8).             // the most columns they can choose (default 6)
+    AlignToolbarRight().       // with no title, the toolbar on the right
     ShowLockButton(true).      // hide to keep the page permanently editable
     Reorderable(true).         // enable drag-to-reorder
     Resizable(true).           // enable resize controls
     SaveHook(myDBSave).        // optional — persist to DB when Done is clicked
     LoadHook(myDBLoad)         // optional — read the committed layout from DB
 ```
+
+The toolbar (the page buttons, then Edit, or the edit controls) sits in the
+page header, at the right beside the title. When it wraps onto two rows, both
+keep to the right edge. A page with no title (`Title("")`, and no description)
+gives the toolbar the whole header, at the left as an Iridium page's actions
+are, or at the right with `AlignToolbarRight()`.
 
 ### Multiple pages
 
@@ -197,11 +206,29 @@ are edits like any other: Done commits them, and Reset and Cancel discard them.
 
 ### Spacing
 
+The grid sits as far below the header as any Iridium page's content does.
 `VerticalPadding`, `VerticalPaddingFn`, `CompactVerticalPadding` and
 `NoVerticalPadding` are Iridium's page options for the vertical space around
 and within the page. The layout follows them: compact halves the space below
 the header and between blocks (across a row as well as down it, so the grid
 stays even), and none leaves only a hairline between blocks.
+
+### Page settings
+
+`Settings()` adds a gear to edit mode, after the page buttons' rename, remove
+and add (or, on a page without page buttons, before Add block). It opens a
+dialog in which the user chooses, for the page shown, how many columns it has
+(1 to `MaxColumns`, 6 by default) and the space between its blocks: Normal,
+Compact, Tight or None. A page starts with `GridColumns` and the spacing its
+vertical padding gives. Like any other edit, Done keeps the choice and Reset
+or Cancel undoes it.
+
+When a page's number of columns changes, a block as wide as the page stays as
+wide as the page; the others keep their span, up to the new number of columns.
+The choices are kept with each page in the `LayoutState`
+(`{"columns":4,"spacing":"compact",…}`, only when they differ from the page's
+own), so a `SaveHook` stores them with the rest. Without `Settings()` they are
+not offered, and stored ones are ignored.
 
 ### Persistence
 
@@ -221,7 +248,8 @@ type SaveHook func(r *http.Request, state LayoutState) error
 ```
 
 `LayoutState` is JSON-serialisable (`{"layouts":[{"name":"Cameras","blocks":[…]}]}`,
-the name only when the page has one); persist it as a blob keyed by user. With both
+the name only when the page has one, and its settings only when it has some);
+persist it as a blob keyed by user. With both
 hooks, your storage is the committed layout: view mode, Reset and a new draft
 read it through `LoadHook`, and Done writes it through `SaveHook` (nothing is
 committed if the hook fails). The plugin copies what `LoadHook` returns and

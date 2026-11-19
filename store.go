@@ -132,7 +132,8 @@ func validAnonymousKey(s string) bool {
 func clone(s LayoutState) LayoutState {
 	out := LayoutState{Layouts: make([]Layout, len(s.Layouts))}
 	for i, l := range s.Layouts {
-		out.Layouts[i] = Layout{Name: l.Name, Blocks: append([]Block(nil), l.Blocks...)}
+		out.Layouts[i] = l
+		out.Layouts[i].Blocks = append([]Block(nil), l.Blocks...)
 	}
 	return out
 }

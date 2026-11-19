@@ -20,6 +20,9 @@ import (
 //   - data-lm-populated:   which pages hold blocks, for the page selector.
 //   - data-lm-unsaved:     whether the user has a draft that differs from
 //                          the committed layout shown in view mode.
+//   - data-lm-columns:     the page's columns, for the settings dialog.
+//   - data-lm-spacing:     the space between blocks chosen in the settings,
+//                          when one is (the stylesheet sets the gap by it).
 //   - data-reorder-url:    the POST endpoint the script calls after a drag.
 //   - x-sort:              Alpine sort plugin (bundled by iridium-core)
 //                          drives drag-to-reorder; only blocks are items,
@@ -33,6 +36,10 @@ templ Grid(d *PageData) {
         data-lm-names={ pageNamesJSON(d) }
         data-lm-populated={ populatedFlags(d) }
         data-lm-unsaved={ strconv.FormatBool(d.Unsaved) }
+        data-lm-columns={ strconv.Itoa(d.GridColumns) }
+        if d.Spacing != "" {
+            data-lm-spacing={ d.Spacing }
+        }
         data-reorder-url={ d.ReorderURL }
         if d.AllowReorder {
             x-sort

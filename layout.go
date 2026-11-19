@@ -45,7 +45,21 @@ type LayoutManagerPage struct {
 	allowResize  bool
 	allowRename  bool
 	zenEnabled   bool
+	// settings adds the settings dialog, where the user chooses each page's
+	// columns (up to maxCols, 0 for the default) and spacing.
+	settings bool
+	maxCols  int
+	// toolbarRight puts the toolbar at the right of a header with no title.
+	toolbarRight bool
 }
+
+// The most columns MaxColumns allows (the stylesheet has a block span for
+// each up to it), and how many the settings dialog offers unless MaxColumns
+// says otherwise.
+const (
+	maxGridColumns    = 12
+	defaultMaxColumns = 6
+)
 
 // NewLayoutManagerPage constructs a layout-manager page rooted at the given
 // slug. Until you add at least one Block(...) there is nothing to add — see
@@ -105,12 +119,73 @@ func (p *LayoutManagerPage) specs(r *http.Request) []BlockSpec {
 }
 
 // GridColumns sets the max columns in the underlying grid (default 2). Block
-// instances can span 1..GridColumns columns each via resize.
+// instances can span 1..GridColumns columns each via resize. With Settings,
+// it is the number of columns a page has until the user chooses another.
 func (p *LayoutManagerPage) GridColumns(n int) *LayoutManagerPage {
 	if n < 1 {
 		n = 1
 	}
 	p.gridCols = n
+	return p
+}
+
+// Settings adds a Settings button to edit mode. It opens a dialog in which
+// the user chooses, for the page shown, its number of columns (1 to
+// MaxColumns) and the space between its blocks. Like any other edit, the
+// choice is kept by Done and undone by Reset or Cancel. A block as wide as
+// the page stays as wide as the page when its number of columns changes; the
+// others keep their span, up to the new number of columns.
+//
+// The choices are kept with the layout (Layout.Columns and Layout.Spacing),
+// so a SaveHook stores them with the rest. Without Settings they are not
+// offered, and stored ones are ignored: every page has GridColumns columns
+// and the spacing its vertical padding gives.
+func (p *LayoutManagerPage) Settings() *LayoutManagerPage {
+	p.settings = true
+	return p
+}
+
+// MaxColumns sets the most columns a user can choose in the settings dialog
+// (default 6, or GridColumns when that is more; at most 12).
+func (p *LayoutManagerPage) MaxColumns(n int) *LayoutManagerPage {
+	p.maxCols = max(1, min(n, maxGridColumns))
+	return p
+}
+
+// maxColumns is the most columns the settings dialog offers: never fewer
+// than GridColumns, the number a page starts with.
+func (p *LayoutManagerPage) maxColumns() int {
+	n := p.maxCols
+	if n == 0 {
+		n = defaultMaxColumns
+	}
+	return max(n, p.gridCols)
+}
+
+// columnsOf is the number of columns page l has: the user's choice, while the
+// settings are on, else GridColumns.
+func (p *LayoutManagerPage) columnsOf(l Layout) int {
+	if p.settings && l.Columns > 0 {
+		return min(l.Columns, p.maxColumns())
+	}
+	return p.gridCols
+}
+
+// spacingOf is the spacing the user chose for page l, while the settings are
+// on; SpacingDefault follows the page's vertical padding.
+func (p *LayoutManagerPage) spacingOf(l Layout) Spacing {
+	if p.settings && l.Spacing.valid() {
+		return l.Spacing
+	}
+	return SpacingDefault
+}
+
+// AlignToolbarRight puts the toolbar (the page buttons, Edit and the rest) at
+// the right of the page header when the page has no title or description,
+// as it is beside one. By default it then sits at the left, as the actions
+// of an Iridium page with no title do.
+func (p *LayoutManagerPage) AlignToolbarRight() *LayoutManagerPage {
+	p.toolbarRight = true
 	return p
 }
 
@@ -599,14 +674,15 @@ func (p *LayoutManagerPage) SetLayouts(w http.ResponseWriter, r *http.Request, d
 }
 
 // normalize pads the layouts to LayoutCount (or one page, when the user
-// adds them) and clamps each block's column span to the current GridColumns
-// setting (in case the admin lowered the grid after layouts were saved).
+// adds them) and clamps each block's column span to its page's columns (in
+// case the admin lowered the grid after layouts were saved).
 func (p *LayoutManagerPage) normalize(state LayoutState) LayoutState {
 	state.EnsureLayouts(max(1, p.layoutCount))
 	for li := range state.Layouts {
+		cols := p.columnsOf(state.Layouts[li])
 		blocks := state.Layouts[li].Blocks
 		for i := range blocks {
-			blocks[i].Cols = clampCols(blocks[i].Cols, p.gridCols)
+			blocks[i].Cols = clampCols(blocks[i].Cols, cols)
 		}
 	}
 	return state

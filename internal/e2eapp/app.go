@@ -57,6 +57,9 @@ const (
 	PageSource    = "source"    // BlockSource whose keys a test can change
 	PagePages     = "pages"     // the defaults: users add, remove and name pages
 	PageCompact   = "compact"   // Iridium's compact vertical padding
+	PageSettings  = "settings"  // the settings dialog: columns and spacing
+	PageUntitled  = "untitled"  // no title: the toolbar at the left
+	PageRight     = "right"     // no title, AlignToolbarRight
 	PageElsewhere = "elsewhere" // a plain page to navigate away to
 )
 
@@ -64,7 +67,7 @@ const (
 var LayoutPages = []string{
 	PageDefault, PageSingle, PageNarrow, PageWide, PageNoLock,
 	PageNoReorder, PageNoResize, PageZen, PageHooks, PageSource,
-	PagePages, PageCompact,
+	PagePages, PageCompact, PageSettings, PageUntitled, PageRight,
 }
 
 //go:embed static
@@ -149,6 +152,11 @@ func (a *App) panel() *panel.Panel {
 		layoutmgr.NewLayoutManagerPage("Pages", PagePages).Blocks(simple()...).GridColumns(3),
 		layoutmgr.NewLayoutManagerPage("Compact", PageCompact).Blocks(simple()...).GridColumns(3).LayoutCount(3).
 			CompactVerticalPadding(),
+		layoutmgr.NewLayoutManagerPage("Settings", PageSettings).Blocks(simple()...).GridColumns(3).LayoutCount(3).
+			Settings(),
+		layoutmgr.NewLayoutManagerPage("Untitled", PageUntitled).Blocks(simple()...).GridColumns(3).Title(""),
+		layoutmgr.NewLayoutManagerPage("Right", PageRight).Blocks(simple()...).GridColumns(3).Title("").
+			AlignToolbarRight(),
 	}
 	items := make([]pages.IPanelItem, 0, len(layoutPages)+1)
 	for _, p := range layoutPages {

@@ -8,44 +8,82 @@
    (--color-border, --color-background, --color-muted, --color-primary, etc.)
    so they flip with the host theme. */
 
-[data-lm-page] {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
+/* The page is Iridium's own panel page, spaced as any other: the grid sits as
+   far below the header as any page's content does. */
 
 /* Iridium's compact and no vertical padding (VerticalPadding) tighten the
-   page's own spacing; the space below the header and between blocks follows,
-   the same across a row as down it. */
-[data-lm-page][data-vertical-padding="compact"] {
-    gap: 0.75rem;
-}
-
+   space between blocks with the page's, the same across a row as down it. */
 [data-lm-page][data-vertical-padding="compact"] .lm-grid {
     --lm-gap: 0.5rem;
-}
-
-[data-lm-page][data-vertical-padding="none"] {
-    gap: 0;
 }
 
 [data-lm-page][data-vertical-padding="none"] .lm-grid {
     --lm-gap: 0.25rem;
 }
 
-/* The toolbar uses Iridium's native page-header action area. */
+/* The spacing chosen in the page settings, over the vertical padding's. */
+[data-lm-page] [data-lm-grid][data-lm-spacing="normal"] {
+    --lm-gap: 1rem;
+}
+
+[data-lm-page] [data-lm-grid][data-lm-spacing="compact"] {
+    --lm-gap: 0.5rem;
+}
+
+[data-lm-page] [data-lm-grid][data-lm-spacing="tight"] {
+    --lm-gap: 0.25rem;
+}
+
+[data-lm-page] [data-lm-grid][data-lm-spacing="none"] {
+    --lm-gap: 0px;
+}
+
+/* The toolbar uses Iridium's native page-header action area, against the
+   right edge beside the title. When it wraps, each row (the pages, then the
+   controls) keeps to that edge too. */
 .lm-toolbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 0.75rem;
     flex-wrap: wrap;
 }
 
-/* Numbered page (layout) selector strip — sits at the left of the toolbar. */
+/* A page with no title has the whole header for its toolbar: Iridium caps
+   the actions at half its width only to leave room for a title. */
+[data-lm-page] .ir-panel-page-header:not([data-has-heading]) .ir-panel-page-actions {
+    max-width: none;
+}
+
+/* Below Iridium's sm breakpoint the header stacks, and its actions keep to
+   the left; so do the toolbar's rows. So they do on a page with no title,
+   unless AlignToolbarRight puts them on the right. */
+@media (max-width: 39.99rem) {
+    .lm-toolbar,
+    .lm-toolbar .lm-selectors,
+    .lm-toolbar .lm-controls {
+        justify-content: flex-start;
+    }
+}
+
+[data-lm-page]:not([data-lm-toolbar-align="right"]) .ir-panel-page-header:not([data-has-heading]) :is(.lm-toolbar, .lm-selectors, .lm-controls) {
+    justify-content: flex-start;
+}
+
+[data-lm-page][data-lm-toolbar-align="right"] .ir-panel-page-header:not([data-has-heading]) .ir-panel-page-actions {
+    margin-inline-start: auto;
+    justify-content: flex-end;
+}
+
+[data-lm-page][data-lm-toolbar-align="right"] .ir-panel-page-header:not([data-has-heading]) :is(.lm-toolbar, .lm-selectors, .lm-controls) {
+    justify-content: flex-end;
+}
+
+/* Numbered page (layout) selector strip: the first row of the toolbar. */
 .lm-selectors {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.375rem;
     flex-wrap: wrap;
 }
@@ -120,6 +158,7 @@
 .lm-controls {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.5rem;
     flex-wrap: wrap;
 }
@@ -1040,4 +1079,202 @@ html.lm-dragging-card .lm-block-content {
     text-decoration: underline;
     text-underline-offset: 0.2em;
     cursor: pointer;
+}
+
+/* --- Page settings ---------------------------------------------------------
+
+   A modal <dialog> laid out as Iridium's own modals are: the dialog element
+   fills the window (so a click beside the panel lands on it and closes it),
+   and its panel is Iridium's .ir-modal-dialog. */
+.lm-settings {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 1rem;
+    border: 0;
+    background: transparent;
+    color: var(--color-foreground);
+    overflow: auto;
+}
+
+.lm-settings[open] {
+    display: grid;
+    place-items: center;
+}
+
+/* Iridium's modal backdrop: a dim with a slight blur. */
+.lm-settings::backdrop {
+    background: rgb(0 0 0 / 0.6);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+}
+
+.lm-settings[open]::backdrop {
+    animation: lm-settings-fade 200ms ease-out;
+}
+
+.lm-settings[open] .lm-settings-panel {
+    animation: lm-settings-rise 200ms ease-out;
+}
+
+/* Iridium's modal dialog, at its small size: the controls need no more. */
+.lm-settings-panel {
+    max-width: 28rem;
+}
+
+/* The content's own gap is room enough below the header's line. */
+.lm-settings-panel .ir-modal-header {
+    margin-bottom: 0;
+}
+
+.lm-settings-panel .ir-modal-close-btn svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+@keyframes lm-settings-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes lm-settings-rise {
+    from {
+        opacity: 0;
+        transform: translateY(0.5rem) scale(0.95);
+    }
+}
+
+.lm-settings-field {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+/* Floated, a legend lays out as any other block (its margin counts). */
+.lm-settings-field legend {
+    float: left;
+    width: 100%;
+    margin: 0 0 0.5rem;
+    padding: 0;
+    font-weight: 500;
+}
+
+.lm-settings-field legend + * {
+    clear: both;
+}
+
+.lm-settings-hint {
+    margin: 0.5rem 0 0;
+    color: var(--color-muted-foreground);
+    font-size: 0.75rem;
+    line-height: 1rem;
+}
+
+/* A choice of a few, as one strip: Iridium's segmented pill (its tab
+   strips), with the choice made raised out of it. The radio stays in the
+   label, unseen, so the arrow keys move between the choices. */
+.lm-segmented {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+    border-radius: calc(var(--radius, 0.5rem) + 2px);
+    background: var(--color-muted);
+}
+
+.lm-segment {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    min-height: 2rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius, 0.5rem);
+    color: var(--color-muted-foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.lm-segment input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.lm-segment:hover {
+    color: var(--color-foreground);
+}
+
+.lm-segment:has(input:checked) {
+    border-color: color-mix(in srgb, var(--color-border) 80%, transparent);
+    background: var(--color-background);
+    color: var(--color-foreground);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--color-foreground) 10%, transparent);
+}
+
+.lm-segment:has(input:focus-visible) {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 1px;
+}
+
+/* A spacing's picture: three bars as far apart as it puts blocks. */
+.lm-spacing-glyph {
+    --lm-glyph-gap: 3px;
+    display: inline-flex;
+    gap: var(--lm-glyph-gap);
+    flex-shrink: 0;
+}
+
+.lm-spacing-glyph i {
+    width: 0.3125rem;
+    height: 0.75rem;
+    border-radius: 1px;
+    background: currentColor;
+    opacity: 0.55;
+}
+
+.lm-spacing-glyph[data-spacing="compact"] {
+    --lm-glyph-gap: 2px;
+}
+
+.lm-spacing-glyph[data-spacing="tight"] {
+    --lm-glyph-gap: 1px;
+}
+
+.lm-spacing-glyph[data-spacing="none"] {
+    --lm-glyph-gap: 0px;
+}
+
+@media (max-width: 30rem) {
+    .lm-spacing-glyph {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lm-settings[open]::backdrop,
+    .lm-settings[open] .lm-settings-panel {
+        animation: none;
+    }
+
+    .lm-segment {
+        transition: none;
+    }
 }

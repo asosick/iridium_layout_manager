@@ -300,6 +300,14 @@
     z-index: 1;
 }
 
+/* A block in use draws over its neighbours, so a popover or menu that
+   reaches past its bottom edge (a table's column list) is not hidden under
+   the next block. */
+.lm-block:hover,
+.lm-block:focus-within {
+    z-index: 2;
+}
+
 /* Keep the block outline as an editing affordance without shifting the grid
    when the user enters or leaves edit mode. */
 .lm-editing .lm-block {

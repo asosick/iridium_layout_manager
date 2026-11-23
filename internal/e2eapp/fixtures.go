@@ -115,12 +115,23 @@ const controlsBody = `<input type="text" class="e2e-input" data-e2e-input aria-l
 	`<li x-sort:item="'gamma'" data-e2e-item="gamma">gamma</li>` +
 	`</ul>`
 
+// popoverBody is a widget with a popover positioned over the page, like a
+// table's column list: a toggle, and in the 600px panel a button that adds a
+// line to the widget (as hiding or showing a column changes a table's height).
+const popoverBody = `<div class="e2e-popover-wrap" x-data="{ open: false, lines: 0 }">` +
+	`<button type="button" data-e2e-popover-toggle @click="open = !open">Columns</button>` +
+	`<template x-for="i in lines"><div class="e2e-popover-line">line</div></template>` +
+	`<div class="e2e-popover-panel" x-show="open" data-e2e-popover-panel>` +
+	`<button type="button" data-e2e-popover-add @click="lines++">Add line</button>` +
+	`</div></div>`
+
 // fixtureBlocks are the deterministic blocks:
 //
 //   - short (80px), tall (400px)
 //   - grow: 80px, then 400px a moment after it is inserted (late content)
 //   - slow: sleeps SlowDelay on every render
 //   - controls: an input, a native draggable and a nested sortable list
+//   - popover: a toggle that opens a tall panel over the blocks below
 func (a *App) fixtureBlocks() []layoutmgr.BlockSpec {
 	return []layoutmgr.BlockSpec{
 		a.fixtureBlock("short", "Short", 0, ""),
@@ -128,6 +139,7 @@ func (a *App) fixtureBlocks() []layoutmgr.BlockSpec {
 		a.fixtureBlock("grow", "Grow", 0, ""),
 		a.fixtureBlock("slow", "Slow", SlowDelay, ""),
 		a.fixtureBlock("controls", "Controls", 0, controlsBody),
+		a.fixtureBlock("popover", "Popover", 0, popoverBody),
 	}
 }
 

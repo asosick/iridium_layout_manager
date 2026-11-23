@@ -1847,8 +1847,12 @@
             const styles = window.getComputedStyle(el);
             const content = el.querySelector(':scope > .lm-block-content');
             const controls = el.querySelector(':scope > .lm-block-controls');
-            const controlsHeight = controls && controls.offsetParent !== null ? controls.scrollHeight : 0;
-            const contentHeight = content ? content.scrollHeight : 0;
+            // Laid-out heights, not scrollHeight: an open popover or menu
+            // positioned over the page (a table's column list) would count in
+            // scrollHeight, push the blocks below down and leave the gap once
+            // it closes, as nothing resizes to measure again.
+            const controlsHeight = controls && controls.offsetParent !== null ? controls.offsetHeight : 0;
+            const contentHeight = content ? content.offsetHeight : 0;
             const innerGap = controlsHeight > 0 && contentHeight > 0 ? parseFloat(styles.rowGap) || 0 : 0;
             const chrome = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0)
                 + (parseFloat(styles.borderTopWidth) || 0) + (parseFloat(styles.borderBottomWidth) || 0);

@@ -105,4 +105,41 @@ test.describe('masonry', () => {
 
     expect({ [grow]: drift[grow], [a]: drift[a], [b]: drift[b], [c]: drift[c] }).toEqual({ [grow]: 0, [a]: 0, [b]: 0, [c]: 0 });
   });
+
+  test('a popover over the blocks below neither pushes them down nor leaves a gap once it closes, and draws over them', async ({ page }) => {
+    // One column, so the short block sits under the popover block.
+    await page.setViewportSize({ width: 480, height: 900 });
+    const lm = new LayoutPage(page);
+    await lm.plant(layoutOf(['popover', 'short']));
+    await lm.goto();
+    const [top, below] = ['popover-1', 'short-2'];
+    const panel = lm.block(top).locator('[data-e2e-popover-panel]');
+    const belowTop = async () => (await lm.block(below).boundingBox())!.y;
+    const gap = async () => {
+      await lm.frames(3);
+      return (await belowTop()) - (await lm.block(top).boundingBox())!.y
+        - (await lm.block(top).locator('.lm-block-content').boundingBox())!.height;
+    };
+    const closedGap = await gap();
+    const startTop = await belowTop();
+
+    await lm.block(top).locator('[data-e2e-popover-toggle]').click();
+    await expect(panel).toBeVisible();
+    // The widget grows a line while its popover is open, as a table does when
+    // a column is hidden or shown: the block measures itself again.
+    await lm.block(top).locator('[data-e2e-popover-add]').click();
+    await expect(lm.block(top).locator('.e2e-popover-line')).toHaveCount(1);
+    expect(await gap(), 'the open popover takes no room').toBeLessThanOrEqual(closedGap + 8);
+    expect(await belowTop() - startTop, 'the block below moves by the added line only').toBeLessThanOrEqual(20 + 8);
+
+    // The panel reaches over the block below and draws over it.
+    const box = (await lm.block(below).boundingBox())!;
+    const onTop = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-e2e-popover-panel]'),
+      [box.x + 20, box.y + 20]);
+    expect(onTop, 'the panel draws over the next block').toBe(true);
+
+    await lm.block(top).locator('[data-e2e-popover-toggle]').click();
+    await expect(panel).toBeHidden();
+    expect(await gap(), 'no gap once it closes').toBeLessThanOrEqual(closedGap + 8);
+  });
 });

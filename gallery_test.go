@@ -167,7 +167,7 @@ func TestTheGalleryOffersEveryBlockWithItsPreview(t *testing.T) {
 	reset(t)
 	c := newClient(t)
 	body := c.page(page).body
-	want := []string{"short", "tall", "grow", "slow", "controls", "table", "chart", "stats"}
+	want := []string{"short", "tall", "grow", "slow", "controls", "popover", "table", "chart", "stats"}
 	if got := optionValues(body); !slices.Equal(got, want) {
 		t.Fatalf("cards %v, want %v", got, want)
 	}

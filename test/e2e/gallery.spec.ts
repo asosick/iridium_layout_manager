@@ -9,7 +9,7 @@ test.describe('block gallery', () => {
     await lm.openGallery();
     await expect(lm.gallery()).toBeVisible();
     await expect(lm.addButton()).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('[data-lm-card]')).toHaveCount(8);
+    await expect(page.locator('[data-lm-card]')).toHaveCount(9);
     await expect(lm.searchField(), 'a mouse goes straight to the search').toBeFocused();
 
     // The card shows the block itself, rendered as a preview of its own.
@@ -45,7 +45,7 @@ test.describe('block gallery', () => {
     await expect(shown()).toHaveCount(1);
     await expect(lm.card('table')).toBeVisible();
     await expect(lm.card('table').locator('mark')).toHaveText('Orders');
-    await expect(lm.gallery().locator('.lm-gallery-count')).toHaveText('1 of 8');
+    await expect(lm.gallery().locator('.lm-gallery-count')).toHaveText('1 of 9');
 
     // Every word typed must match, anywhere in the name.
     await lm.searchField().fill('sta sal');
@@ -67,7 +67,7 @@ test.describe('block gallery', () => {
 
     await lm.searchField().press('Escape');
     await expect(lm.searchField()).toHaveValue('');
-    await expect(shown()).toHaveCount(8);
+    await expect(shown()).toHaveCount(9);
     await expect(lm.gallery(), 'the first Escape only clears').toBeVisible();
     await lm.searchField().press('Escape');
     await expect(lm.gallery()).toBeHidden();

@@ -61,6 +61,38 @@
         return Number.isFinite(gap) ? gap : 16;
     };
 
+    // The breakpoints a page's columns are given for, smallest first, and the
+    // smallest viewport width (in rem) each applies from: Iridium's, as in
+    // layout_manager.css and columns.go.
+    const BREAKPOINTS = ['xs', 'sm', 'md', 'lg', 'xl', '2xl'];
+    const BREAKPOINT_WIDTHS = [0, 40, 48, 64, 80, 96];
+
+    // currentBreakpoint is the breakpoint of the viewport's width.
+    const currentBreakpoint = () => {
+        let current = BREAKPOINTS[0];
+        BREAKPOINT_WIDTHS.forEach((rem, i) => {
+            if (rem > 0 && window.matchMedia('(min-width: ' + rem + 'rem)').matches) current = BREAKPOINTS[i];
+        });
+        return current;
+    };
+
+    // withWidest gives the page at its widest n columns, and keeps its other
+    // breakpoints' columns, up to n (as columns.go's withWidest does).
+    const withWidest = (columns, n) => {
+        const top = Math.max(...columns);
+        return columns.map(c => (c === top ? n : Math.min(c, n)));
+    };
+
+    // shownSpan is how many of the columns on screen a block of span cols
+    // covers, cols counting in the page's widest columns: its share of the
+    // page, rounded up (as the stylesheet's --lm-span is). storedSpan is the
+    // widest span that covers shown columns on screen, so a block full width
+    // on screen is full width on every screen.
+    const shownSpan = (cols, columns, widest) =>
+        Math.min(columns, Math.max(1, Math.ceil((cols * columns) / widest)));
+    const storedSpan = (shown, columns, widest) =>
+        Math.max(1, Math.min(widest, Math.floor((shown * widest) / columns)));
+
     // An inert document to build copies in: nothing in it loads.
     let inert = null;
 
@@ -188,13 +220,22 @@
         galleryTotal: 0,
         galleryDragging: false,
         galleryOverSheet: false,
-        // The page settings: the shown page's columns and chosen spacing
-        // ('' follows the vertical padding), from its grid (data-lm-columns,
-        // data-lm-spacing); whether the dialog is open, and the choices in it.
+        // The page settings: the shown page's columns at its widest and at
+        // each breakpoint, and chosen spacing ('' follows the vertical
+        // padding), from its grid (data-lm-columns, data-lm-columns-at,
+        // data-lm-spacing); whether the dialog is open, and the choices in
+        // it. settingsColumnsAt are the columns chosen at each breakpoint,
+        // xs first, as "1,2,2,4,4,4" (kept in the dialog's selects, which
+        // Alpine's CSP build cannot bind one by one). settingsBase are the
+        // breakpoints' columns a choice of columns at the widest starts from:
+        // the page's, until one is chosen breakpoint by breakpoint.
         pageColumns: 0,
+        pageColumnsAt: [],
         pageSpacing: '',
         settingsOpen: false,
         settingsColumns: '',
+        settingsColumnsAt: '',
+        settingsBase: [],
         settingsSpacing: '',
         // The page root. Not this.$el: in a method an Alpine directive calls
         // (@click on a toolbar button), $el is that button.
@@ -323,6 +364,8 @@
             try { names = JSON.parse(grid.dataset.lmNames || 'null'); } catch (err) { /* numbers below */ }
             this.pages = Array.isArray(names) ? names : this.populated.map(() => '');
             this.pageColumns = parseInt(grid.dataset.lmColumns || '', 10) || 1;
+            this.pageColumnsAt = BREAKPOINTS.map((_, i) =>
+                parseInt((grid.dataset.lmColumnsAt || '').split(',')[i] || '', 10) || this.pageColumns);
             this.pageSpacing = grid.dataset.lmSpacing || '';
             // The page shown can differ from the one asked for: a page added
             // or removed, or one the committed layout does not have.
@@ -625,7 +668,20 @@
             if (!dialog || !this.editMode || dialog.open) return;
             this.closeGallery();
             this.settingsColumns = String(this.pageColumns);
+            this.settingsBase = this.pageColumnsAt.slice();
+            this.showBreakpointColumns(this.pageColumnsAt);
             this.settingsSpacing = this.shownSpacing();
+            // Columns per screen size is open when the page has them chosen
+            // breakpoint by breakpoint, and marks the screen it is on.
+            const breakpoints = dialog.querySelector('[data-lm-settings-breakpoints]');
+            if (breakpoints) {
+                const grid = this.grid();
+                breakpoints.open = !!grid && grid.hasAttribute('data-lm-columns-custom');
+                const current = currentBreakpoint();
+                breakpoints.querySelectorAll('.lm-breakpoint').forEach(row => {
+                    row.classList.toggle('is-current', row.dataset.breakpoint === current);
+                });
+            }
             this.settingsOpen = true;
             dialog.showModal();
             // The columns chosen has the focus, so the arrow keys change them.
@@ -646,8 +702,37 @@
             this.settingsOpen = false;
         },
 
+        // A number of columns was chosen: the page at its widest gets it, and
+        // its smaller screens keep their columns, up to it.
+        settingsColumnsChosen() {
+            const n = parseInt(this.settingsColumns, 10) || 1;
+            this.showBreakpointColumns(withWidest(this.settingsBase, n));
+        },
+
+        // A breakpoint's columns were chosen: the columns shown are the
+        // page's widest, and a choice of columns starts from these.
+        settingsBreakpointChosen() {
+            const columns = this.breakpointSelects().map(select => parseInt(select.value, 10) || 1);
+            this.settingsBase = columns;
+            this.settingsColumnsAt = columns.join(',');
+            this.settingsColumns = String(Math.max(...columns));
+        },
+
+        breakpointSelects() {
+            const dialog = this.settingsDialog();
+            if (!dialog) return [];
+            return BREAKPOINTS.map(bp => dialog.querySelector('select[data-breakpoint="' + bp + '"]')).filter(Boolean);
+        },
+
+        // showBreakpointColumns puts columns per breakpoint, xs first, in the
+        // dialog's selects.
+        showBreakpointColumns(columns) {
+            this.breakpointSelects().forEach((select, i) => { select.value = String(columns[i]); });
+            this.settingsColumnsAt = columns.join(',');
+        },
+
         settingsChanged() {
-            return this.settingsColumns !== String(this.pageColumns)
+            return this.settingsColumnsAt !== this.pageColumnsAt.join(',')
                 || this.settingsSpacing !== this.shownSpacing();
         },
 
@@ -669,9 +754,10 @@
             }
             const params = new URLSearchParams({
                 layout: String(this.currentLayout),
-                columns: this.settingsColumns,
                 spacing: this.settingsSpacing === this.defaultSpacing() ? '' : this.settingsSpacing,
             });
+            const columns = this.settingsColumnsAt.split(',');
+            BREAKPOINTS.forEach((bp, i) => params.set('columns_' + bp, columns[i] || '1'));
             this.closeSettings();
             this.enqueue(() => this.swapGrid('POST', this._urls.settings + '?' + params.toString()));
         },
@@ -1767,18 +1853,25 @@
             e.preventDefault();
             e.stopPropagation();
 
+            // The handle moves in the columns on screen; the span is stored in
+            // columns of the page at its widest (widest), which can be more
+            // where the screen is narrower than the page's widest breakpoint.
             const styles = window.getComputedStyle(grid);
             const columns = Math.max(1, styles.gridTemplateColumns.split(' ').length);
+            const widest = Math.max(columns, parseInt(grid.dataset.lmColumns || '', 10) || columns);
             const gap = parseFloat(styles.columnGap) || 0;
             const unit = (grid.clientWidth + gap) / columns;
             const startColumn = Math.max(0, Math.round((el.getBoundingClientRect().left - grid.getBoundingClientRect().left) / unit));
             this._resize = {
                 grid,
                 columns,
+                widest,
                 unit,
                 startColumn,
                 startX: e.clientX,
                 startCols: this.cols,
+                startShown: shownSpan(this.cols, columns, widest),
+                shown: shownSpan(this.cols, columns, widest),
                 move: (event) => this.previewResize(event),
                 end: (event) => this.finishResize(event),
             };
@@ -1797,7 +1890,10 @@
             // Up to the full grid, as the + button allows: a block too wide for
             // its row moves to the next one.
             const delta = Math.round((e.clientX - state.startX) / state.unit);
-            this.cols = Math.max(1, Math.min(state.startCols + delta, state.columns));
+            const shown = Math.max(1, Math.min(state.startShown + delta, state.columns));
+            if (shown === state.shown) return;
+            state.shown = shown;
+            this.cols = shown === state.startShown ? state.startCols : storedSpan(shown, state.columns, state.widest);
             this.showGuide();
         },
 
@@ -1805,9 +1901,9 @@
         showGuide() {
             const state = this._resize;
             if (!state) return;
-            const start = state.startColumn + this.cols > state.columns ? 0 : state.startColumn;
+            const start = state.startColumn + state.shown > state.columns ? 0 : state.startColumn;
             state.grid.querySelectorAll('.lm-grid-guide-cell').forEach((cell, index) => {
-                cell.classList.toggle('is-active', index >= start && index < start + this.cols);
+                cell.classList.toggle('is-active', index >= start && index < start + state.shown);
             });
         },
 

@@ -45,29 +45,30 @@ const PanelPath = "/admin"
 
 // Page slugs, one per configuration under test.
 const (
-	PageDefault   = "default"   // 3 columns, 3 layouts, lock button, every block
-	PageSingle    = "single"    // one layout
-	PageNarrow    = "narrow"    // 1 column
-	PageWide      = "wide"      // 6 columns
-	PageNoLock    = "nolock"    // no lock button: always editable
-	PageNoReorder = "noreorder" // reordering disabled
-	PageNoResize  = "noresize"  // resizing disabled
-	PageZen       = "zen"       // Zen mode enabled
-	PageHooks     = "hooks"     // SaveHook/LoadHook on an in-memory "database"
-	PageSource    = "source"    // BlockSource whose keys a test can change
-	PagePages     = "pages"     // the defaults: users add, remove and name pages
-	PageCompact   = "compact"   // Iridium's compact vertical padding
-	PageSettings  = "settings"  // the settings dialog: columns and spacing
-	PageUntitled  = "untitled"  // no title: the toolbar at the left
-	PageRight     = "right"     // no title, AlignToolbarRight
-	PageElsewhere = "elsewhere" // a plain page to navigate away to
+	PageDefault    = "default"    // 3 columns, 3 layouts, lock button, every block
+	PageSingle     = "single"     // one layout
+	PageNarrow     = "narrow"     // 1 column
+	PageWide       = "wide"       // 6 columns
+	PageNoLock     = "nolock"     // no lock button: always editable
+	PageNoReorder  = "noreorder"  // reordering disabled
+	PageNoResize   = "noresize"   // resizing disabled
+	PageZen        = "zen"        // Zen mode enabled
+	PageHooks      = "hooks"      // SaveHook/LoadHook on an in-memory "database"
+	PageSource     = "source"     // BlockSource whose keys a test can change
+	PagePages      = "pages"      // the defaults: users add, remove and name pages
+	PageCompact    = "compact"    // Iridium's compact vertical padding
+	PageSettings   = "settings"   // the settings dialog: columns and spacing
+	PageResponsive = "responsive" // 1 column on phones, 2 on tablets, 4 from laptops, with the settings
+	PageUntitled   = "untitled"   // no title: the toolbar at the left
+	PageRight      = "right"      // no title, AlignToolbarRight
+	PageElsewhere  = "elsewhere"  // a plain page to navigate away to
 )
 
 // LayoutPages are the slugs of every LayoutManagerPage.
 var LayoutPages = []string{
 	PageDefault, PageSingle, PageNarrow, PageWide, PageNoLock,
 	PageNoReorder, PageNoResize, PageZen, PageHooks, PageSource,
-	PagePages, PageCompact, PageSettings, PageUntitled, PageRight,
+	PagePages, PageCompact, PageSettings, PageResponsive, PageUntitled, PageRight,
 }
 
 //go:embed static
@@ -127,6 +128,10 @@ func New() *App {
 	return a
 }
 
+// upTo is n columns from the sm breakpoint (640px) up, and one below it, on
+// phones.
+func upTo(n int) map[string]int { return map[string]int{"xs": 1, "sm": n} }
+
 func (a *App) panel() *panel.Panel {
 	both := func() []layoutmgr.BlockSpec { return append(a.fixtureBlocks(), a.widgetBlocks()...) }
 	simple := func() []layoutmgr.BlockSpec { return a.fixtureBlocks() }
@@ -134,28 +139,30 @@ func (a *App) panel() *panel.Panel {
 	// Three pages each, as before pages could be added, except where a page
 	// tests the number of pages itself.
 	layoutPages := []*layoutmgr.LayoutManagerPage{
-		layoutmgr.NewLayoutManagerPage("Default", PageDefault).Blocks(both()...).GridColumns(3).LayoutCount(3),
-		layoutmgr.NewLayoutManagerPage("Single", PageSingle).Blocks(simple()...).GridColumns(3).LayoutCount(1),
-		layoutmgr.NewLayoutManagerPage("Narrow", PageNarrow).Blocks(simple()...).GridColumns(1).LayoutCount(3),
-		layoutmgr.NewLayoutManagerPage("Wide", PageWide).Blocks(simple()...).GridColumns(6).LayoutCount(3),
-		layoutmgr.NewLayoutManagerPage("No lock", PageNoLock).Blocks(simple()...).GridColumns(3).LayoutCount(3).ShowLockButton(false),
-		layoutmgr.NewLayoutManagerPage("No reorder", PageNoReorder).Blocks(simple()...).GridColumns(3).LayoutCount(3).Reorderable(false),
-		layoutmgr.NewLayoutManagerPage("No resize", PageNoResize).Blocks(simple()...).GridColumns(3).LayoutCount(3).Resizable(false),
-		layoutmgr.NewLayoutManagerPage("Zen", PageZen).Blocks(simple()...).GridColumns(3).LayoutCount(3).Zen(),
-		layoutmgr.NewLayoutManagerPage("Hooks", PageHooks).Blocks(simple()...).GridColumns(3).LayoutCount(3).
+		layoutmgr.NewLayoutManagerPage("Default", PageDefault).Blocks(both()...).GridColumns(upTo(3)).LayoutCount(3),
+		layoutmgr.NewLayoutManagerPage("Single", PageSingle).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(1),
+		layoutmgr.NewLayoutManagerPage("Narrow", PageNarrow).Blocks(simple()...).GridColumns(upTo(1)).LayoutCount(3),
+		layoutmgr.NewLayoutManagerPage("Wide", PageWide).Blocks(simple()...).GridColumns(upTo(6)).LayoutCount(3),
+		layoutmgr.NewLayoutManagerPage("No lock", PageNoLock).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(3).ShowLockButton(false),
+		layoutmgr.NewLayoutManagerPage("No reorder", PageNoReorder).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(3).Reorderable(false),
+		layoutmgr.NewLayoutManagerPage("No resize", PageNoResize).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(3).Resizable(false),
+		layoutmgr.NewLayoutManagerPage("Zen", PageZen).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(3).Zen(),
+		layoutmgr.NewLayoutManagerPage("Hooks", PageHooks).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(3).
 			SaveHook(a.hooks.save).LoadHook(a.hooks.load),
 		layoutmgr.NewLayoutManagerPage("Source", PageSource).
 			Blocks(a.fixtureBlock("note", "Note", 0, "")).
-			GridColumns(3).
+			GridColumns(upTo(3)).
 			LayoutCount(3).
 			BlockSource(a.sourceBlocks),
-		layoutmgr.NewLayoutManagerPage("Pages", PagePages).Blocks(simple()...).GridColumns(3),
-		layoutmgr.NewLayoutManagerPage("Compact", PageCompact).Blocks(simple()...).GridColumns(3).LayoutCount(3).
+		layoutmgr.NewLayoutManagerPage("Pages", PagePages).Blocks(simple()...).GridColumns(upTo(3)),
+		layoutmgr.NewLayoutManagerPage("Compact", PageCompact).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(3).
 			CompactVerticalPadding(),
-		layoutmgr.NewLayoutManagerPage("Settings", PageSettings).Blocks(simple()...).GridColumns(3).LayoutCount(3).
+		layoutmgr.NewLayoutManagerPage("Settings", PageSettings).Blocks(simple()...).GridColumns(upTo(3)).LayoutCount(3).
 			Settings(),
-		layoutmgr.NewLayoutManagerPage("Untitled", PageUntitled).Blocks(simple()...).GridColumns(3).Title(""),
-		layoutmgr.NewLayoutManagerPage("Right", PageRight).Blocks(simple()...).GridColumns(3).Title("").
+		layoutmgr.NewLayoutManagerPage("Responsive", PageResponsive).Blocks(simple()...).
+			GridColumns(map[string]int{"xs": 1, "md": 2, "lg": 4}).LayoutCount(3).Settings(),
+		layoutmgr.NewLayoutManagerPage("Untitled", PageUntitled).Blocks(simple()...).GridColumns(upTo(3)).Title(""),
+		layoutmgr.NewLayoutManagerPage("Right", PageRight).Blocks(simple()...).GridColumns(upTo(3)).Title("").
 			AlignToolbarRight(),
 	}
 	items := make([]pages.IPanelItem, 0, len(layoutPages)+1)

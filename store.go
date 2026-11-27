@@ -134,6 +134,7 @@ func clone(s LayoutState) LayoutState {
 	for i, l := range s.Layouts {
 		out.Layouts[i] = l
 		out.Layouts[i].Blocks = append([]Block(nil), l.Blocks...)
+		out.Layouts[i].ColumnBreakpoints = cloneColumns(l.ColumnBreakpoints)
 	}
 	return out
 }

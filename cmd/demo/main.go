@@ -197,7 +197,7 @@ func dashboardPage() *layoutmgr.LayoutManagerPage {
 			layoutmgr.StaticBlock("welcome", "Welcome note", welcomeNote()),
 			layoutmgr.DynamicBlock("activity", "Live activity", liveActivity),
 		).
-		GridColumns(3).
+		GridColumns(map[string]int{"xs": 1, "md": 2, "lg": 3}).
 		Settings().
 		ShowLockButton(true).
 		Reorderable(true).

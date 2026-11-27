@@ -20,7 +20,12 @@ import (
 //   - data-lm-populated:   which pages hold blocks, for the page selector.
 //   - data-lm-unsaved:     whether the user has a draft that differs from
 //                          the committed layout shown in view mode.
-//   - data-lm-columns:     the page's columns, for the settings dialog.
+//   - data-lm-columns:     the page's columns at its widest, for the
+//                          settings dialog and the resize handle.
+//   - data-lm-columns-at:  the page's columns at each breakpoint, xs first
+//                          ("1,2,2,4,4,4"), for the settings dialog; with
+//                          data-lm-columns-custom when the user chose them
+//                          breakpoint by breakpoint.
 //   - data-lm-spacing:     the space between blocks chosen in the settings,
 //                          when one is (the stylesheet sets the gap by it).
 //   - data-reorder-url:    the POST endpoint the script calls after a drag.
@@ -30,13 +35,17 @@ import (
 templ Grid(d *PageData) {
     <div
         class="lm-grid"
-        style={ fmt.Sprintf("--lm-cols:%d", d.GridColumns) }
+        style={ gridStyle(d) }
         data-lm-grid
         data-lm-shown={ strconv.Itoa(d.CurrentLayout) }
         data-lm-names={ pageNamesJSON(d) }
         data-lm-populated={ populatedFlags(d) }
         data-lm-unsaved={ strconv.FormatBool(d.Unsaved) }
         data-lm-columns={ strconv.Itoa(d.GridColumns) }
+        data-lm-columns-at={ joinInts(d.ColumnsAt) }
+        if d.ColumnsCustom {
+            data-lm-columns-custom
+        }
         if d.Spacing != "" {
             data-lm-spacing={ d.Spacing }
         }
@@ -67,6 +76,28 @@ templ Grid(d *PageData) {
             @Block(d, b)
         }
     </div>
+}
+
+// gridStyle gives the grid its columns at each breakpoint (--lm-cols-xs …
+// --lm-cols-2xl, which the stylesheet picks between by the viewport's width)
+// and at its widest (--lm-cols-max, which block spans count in).
+func gridStyle(d *PageData) string {
+    var b strings.Builder
+    for i, bp := range Breakpoints {
+        if i < len(d.ColumnsAt) {
+            fmt.Fprintf(&b, "--lm-cols-%s:%d;", bp.Key, d.ColumnsAt[i])
+        }
+    }
+    fmt.Fprintf(&b, "--lm-cols-max:%d", d.GridColumns)
+    return b.String()
+}
+
+func joinInts(ns []int) string {
+    parts := make([]string, len(ns))
+    for i, n := range ns {
+        parts[i] = strconv.Itoa(n)
+    }
+    return strings.Join(parts, ",")
 }
 
 // pageNamesJSON lists the pages' names: ["Overview","",…].

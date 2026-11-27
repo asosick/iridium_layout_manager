@@ -54,7 +54,7 @@ func TestVerticalPaddingBuildersReachEachRequest(t *testing.T) {
 		}, enum.PageVerticalPaddingCompact},
 		"callback": {func(p *LayoutManagerPage) *LayoutManagerPage { return p.VerticalPaddingFn(none) }, enum.PageVerticalPaddingNone},
 	} {
-		p := tc.build(NewLayoutManagerPage("Dashboard", "dashboard")).GridColumns(3)
+		p := tc.build(NewLayoutManagerPage("Dashboard", "dashboard")).GridColumnsFixed(3)
 		perRequest := p.cloneCustomPanelPage()
 		if got := perRequest.VerticalPaddingStr.Get(nil); got != tc.want {
 			t.Errorf("%s: a request renders vertical padding %q, want %q", name, got, tc.want)

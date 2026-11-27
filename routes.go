@@ -35,7 +35,7 @@ const (
 	routeAddPage    = "/lm/pages/add"    // → the new page's grid
 	routeRemovePage = "/lm/pages/remove" // ?layout=N → the grid of the page before
 	routeRenamePage = "/lm/pages/rename" // ?layout=N, form name=… → the name kept
-	routeSettings   = "/lm/settings"     // ?layout=N, form columns=…&spacing=… → the grid
+	routeSettings   = "/lm/settings"     // ?layout=N, form columns_xs…columns_2xl (or columns)&spacing=… → the grid
 
 	nextLayoutHeader = "X-Iridium-Layout-Manager-Next-Layout"
 	colsHeader       = "X-Layout-Manager-Cols"
@@ -472,10 +472,13 @@ func (p *LayoutManagerPage) handleRenamePage(w http.ResponseWriter, r *http.Requ
 }
 
 // handleSettings applies the settings dialog to the page ?layout=N and
-// answers its grid. Form values: columns=N (1 to MaxColumns) and spacing (one
-// of the Spacing values; empty follows the page's vertical padding); either
-// left out stays as it is. A block as wide as the page stays as wide as the
-// page; the others keep their span, up to the new number of columns.
+// answers its grid. Form values: columns_xs … columns_2xl, the columns at
+// each breakpoint (1 to MaxColumns; one left out takes the next smaller
+// one's, as GridColumns does); or columns=N alone, the page's columns at its
+// widest, which keeps its smaller screens as they are, up to N. spacing is
+// one of the Spacing values (empty follows the page's vertical padding). What
+// is left out stays as it is. A block as wide as the page stays as wide as
+// the page; the others keep their span, up to the new number of columns.
 func (p *LayoutManagerPage) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if !allowPost(w, r) {
 		return
@@ -488,14 +491,37 @@ func (p *LayoutManagerPage) handleSettings(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	columns := 0
-	if raw := r.FormValue("columns"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > p.maxColumns() {
-			http.Error(w, "bad columns", http.StatusBadRequest)
+	most := p.maxColumns()
+	readColumns := func(key string) (int, bool) {
+		n, err := strconv.Atoi(r.FormValue(key))
+		if err != nil || n < 1 || n > most {
+			http.Error(w, "bad "+key, http.StatusBadRequest)
+			return 0, false
+		}
+		return n, true
+	}
+	widest := 0
+	if r.FormValue("columns") != "" {
+		n, ok := readColumns("columns")
+		if !ok {
 			return
 		}
-		columns = n
+		widest = n
+	}
+	var perBreakpoint map[string]int
+	for _, bp := range breakpoints {
+		key := "columns_" + bp
+		if r.FormValue(key) == "" {
+			continue
+		}
+		n, ok := readColumns(key)
+		if !ok {
+			return
+		}
+		if perBreakpoint == nil {
+			perBreakpoint = make(map[string]int, len(breakpoints))
+		}
+		perBreakpoint[bp] = n
 	}
 	spacing, setSpacing := Spacing(r.FormValue("spacing")), r.Form.Has("spacing")
 	if !spacing.valid() {
@@ -503,21 +529,21 @@ func (p *LayoutManagerPage) handleSettings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	state, idx, ok := p.edit(w, r, func(l *Layout) bool {
-		if columns > 0 {
-			before := p.columnsOf(*l)
+		if perBreakpoint != nil || widest > 0 {
+			current := p.breakpointsOf(*l)
+			chosen := current.withWidest(widest)
+			if perBreakpoint != nil {
+				chosen = cascade(perBreakpoint, most)
+			}
+			before, after := current.widest(), chosen.widest()
 			for i := range l.Blocks {
 				// A page of one column has every block as wide as it: those
 				// keep their span.
 				if before > 1 && l.Blocks[i].Cols >= before {
-					l.Blocks[i].Cols = columns
+					l.Blocks[i].Cols = after
 				}
 			}
-			// The number the page starts with is kept as no choice, so the
-			// page follows GridColumns if it changes.
-			l.Columns = columns
-			if columns == p.gridCols {
-				l.Columns = 0
-			}
+			p.setColumns(l, chosen)
 		}
 		if setSpacing {
 			l.Spacing = spacing

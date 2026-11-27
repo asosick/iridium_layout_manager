@@ -73,7 +73,7 @@ func TestSettingsChooseAPagesColumnsAndSpacing(t *testing.T) {
 	if columns, spacing := gridSettings(t, r.body); columns != "5" || spacing != "compact" {
 		t.Fatalf("the grid answered has columns %s, spacing %q", columns, spacing)
 	}
-	if !strings.Contains(r.body, "--lm-cols:5") {
+	if !strings.Contains(r.body, "--lm-cols-max:5") {
 		t.Fatalf("the grid answered lays out %.300q", r.body)
 	}
 	if got := spans(r.body); got["one"] != 1 || got["full"] != 5 || got["two"] != 2 {

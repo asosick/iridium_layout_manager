@@ -23,7 +23,7 @@ import (
 // page — register it with your panel like any other:
 //
 //	panel.PanelItems(layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
-//	    Blocks(...).GridColumns(3))
+//	    Blocks(...).GridColumns(map[string]int{"xs": 1, "md": 3}))
 //
 // Layouts are kept on the server per user (see store.go), so they work with
 // zero configuration. Pass SaveHook/LoadHook to keep committed layouts in
@@ -33,7 +33,9 @@ type LayoutManagerPage struct {
 
 	blocks      []BlockSpec
 	blockSource func(r *http.Request) []BlockSpec
-	gridCols    int
+	// gridCols is the page's columns at each breakpoint, as GridColumns was
+	// given it (see cascade).
+	gridCols map[string]int
 	// layoutCount fixes the number of pages; 0 leaves it to the user, who
 	// adds and removes pages.
 	layoutCount  int
@@ -46,7 +48,8 @@ type LayoutManagerPage struct {
 	allowRename  bool
 	zenEnabled   bool
 	// settings adds the settings dialog, where the user chooses each page's
-	// columns (up to maxCols, 0 for the default) and spacing.
+	// columns at each breakpoint (up to maxCols, 0 for the default) and
+	// spacing.
 	settings bool
 	maxCols  int
 	// toolbarRight puts the toolbar at the right of a header with no title.
@@ -66,7 +69,7 @@ const (
 // Blocks().
 //
 // Defaults:
-//   - GridColumns = 2
+//   - GridColumns = {"xs": 1, "sm": 2}: one column on phones, two from 640px
 //   - Pages: one to start with, and the user adds more (see LayoutCount)
 //   - RenamablePages = true
 //   - ShowLockButton = true
@@ -81,7 +84,7 @@ func NewLayoutManagerPage(name, slug string) *LayoutManagerPage {
 	cpp.Title(name)
 	return &LayoutManagerPage{
 		CustomPanelPage: cpp,
-		gridCols:        2,
+		gridCols:        defaultGridColumns,
 		showLockBtn:     true,
 		allowReorder:    true,
 		allowResize:     true,
@@ -118,57 +121,122 @@ func (p *LayoutManagerPage) specs(r *http.Request) []BlockSpec {
 	return append(append([]BlockSpec{}, p.blocks...), p.blockSource(r)...)
 }
 
-// GridColumns sets the max columns in the underlying grid (default 2). Block
-// instances can span 1..GridColumns columns each via resize. With Settings,
-// it is the number of columns a page has until the user chooses another.
-func (p *LayoutManagerPage) GridColumns(n int) *LayoutManagerPage {
-	if n < 1 {
-		n = 1
+// GridColumns sets the page's grid columns per breakpoint, as Iridium's
+// SchemaColumns and HeaderColumns do. Keys are breakpoint names ("xs", "sm",
+// "md", "lg", "xl", "2xl"; any other key is ignored) and values the number of
+// columns from that breakpoint up, until a larger breakpoint sets another.
+// xs, the smallest, is 1 unless given. Counts are kept to 1..12.
+//
+//	GridColumns(map[string]int{"xs": 1, "md": 2, "xl": 4})
+//
+// gives phones one column, tablets two and desktops four. The default is
+// {"xs": 1, "sm": 2}.
+//
+// Blocks are resized in columns of the page at its widest (4 above), and keep
+// their share of the page where it has fewer: a block 2 of 4 columns wide
+// takes 1 of 2, and one 3 of 4 wide takes 2 of 2. A block 1 column wide
+// never gets narrower than a column, and every block is full width where the
+// page has one column.
+//
+// With Settings, this is what a page has until the user chooses otherwise.
+func (p *LayoutManagerPage) GridColumns(columns map[string]int) *LayoutManagerPage {
+	if len(columns) == 0 {
+		columns = defaultGridColumns
 	}
-	p.gridCols = n
+	p.gridCols = cloneColumns(columns)
 	return p
+}
+
+// GridColumnsFixed is shorthand for the same number of columns at every
+// breakpoint, phones included. Values < 1 are clamped to 1.
+func (p *LayoutManagerPage) GridColumnsFixed(n int) *LayoutManagerPage {
+	return p.GridColumns(map[string]int{"xs": max(1, n)})
 }
 
 // Settings adds a Settings button to edit mode. It opens a dialog in which
 // the user chooses, for the page shown, its number of columns (1 to
-// MaxColumns) and the space between its blocks. Like any other edit, the
-// choice is kept by Done and undone by Reset or Cancel. A block as wide as
-// the page stays as wide as the page when its number of columns changes; the
-// others keep their span, up to the new number of columns.
+// MaxColumns) and the space between its blocks. Choosing a number of columns
+// changes the page at its widest and keeps its smaller screens as they are,
+// up to that number; under "Columns per screen size" the user can choose the
+// columns at each breakpoint too. Like any other edit, the choice is kept by
+// Done and undone by Reset or Cancel. A block as wide as the page stays as
+// wide as the page when its number of columns changes; the others keep their
+// span, up to the new number of columns.
 //
-// The choices are kept with the layout (Layout.Columns and Layout.Spacing),
-// so a SaveHook stores them with the rest. Without Settings they are not
-// offered, and stored ones are ignored: every page has GridColumns columns
-// and the spacing its vertical padding gives.
+// The choices are kept with the layout (Layout.Columns,
+// Layout.ColumnBreakpoints and Layout.Spacing), so a SaveHook stores them
+// with the rest. Without Settings they are not offered, and stored ones are
+// ignored: every page has GridColumns columns and the spacing its vertical
+// padding gives.
 func (p *LayoutManagerPage) Settings() *LayoutManagerPage {
 	p.settings = true
 	return p
 }
 
 // MaxColumns sets the most columns a user can choose in the settings dialog
-// (default 6, or GridColumns when that is more; at most 12).
+// (default 6, or GridColumns' widest when that is more; at most 12).
 func (p *LayoutManagerPage) MaxColumns(n int) *LayoutManagerPage {
 	p.maxCols = max(1, min(n, maxGridColumns))
 	return p
 }
 
 // maxColumns is the most columns the settings dialog offers: never fewer
-// than GridColumns, the number a page starts with.
+// than GridColumns' widest, the number a page starts with.
 func (p *LayoutManagerPage) maxColumns() int {
 	n := p.maxCols
 	if n == 0 {
 		n = defaultMaxColumns
 	}
-	return max(n, p.gridCols)
+	return max(n, p.baseColumns().widest())
 }
 
-// columnsOf is the number of columns page l has: the user's choice, while the
-// settings are on, else GridColumns.
-func (p *LayoutManagerPage) columnsOf(l Layout) int {
-	if p.settings && l.Columns > 0 {
-		return min(l.Columns, p.maxColumns())
+// baseColumns are GridColumns at every breakpoint: what a page has until the
+// user chooses otherwise.
+func (p *LayoutManagerPage) baseColumns() breakpointColumns {
+	return cascade(p.gridCols, maxGridColumns)
+}
+
+// breakpointsOf are the columns page l has at each breakpoint: GridColumns,
+// unless the settings are on and the user chose otherwise, either at each
+// breakpoint (Layout.ColumnBreakpoints) or for the page at its widest
+// (Layout.Columns, which keeps GridColumns' smaller screens up to it).
+func (p *LayoutManagerPage) breakpointsOf(l Layout) breakpointColumns {
+	base := p.baseColumns()
+	if !p.settings {
+		return base
 	}
-	return p.gridCols
+	most := p.maxColumns()
+	if len(l.ColumnBreakpoints) > 0 {
+		return cascade(l.ColumnBreakpoints, most)
+	}
+	if l.Columns > 0 {
+		return base.withWidest(min(l.Columns, most))
+	}
+	return base
+}
+
+// columnsOf is the number of columns page l has at its widest: the columns
+// its blocks' spans count in.
+func (p *LayoutManagerPage) columnsOf(l Layout) int {
+	return p.breakpointsOf(l).widest()
+}
+
+// setColumns keeps the columns chosen for page l at each breakpoint, as the
+// least it takes to say them: nothing when they are GridColumns' (so the page
+// follows GridColumns if it changes), the widest alone when they are
+// GridColumns' with another widest, and every breakpoint otherwise.
+func (p *LayoutManagerPage) setColumns(l *Layout, chosen breakpointColumns) {
+	base := p.baseColumns()
+	widest := chosen.widest()
+	l.Columns, l.ColumnBreakpoints = 0, nil
+	switch chosen {
+	case base:
+	case base.withWidest(widest):
+		l.Columns = widest
+	default:
+		l.Columns = widest
+		l.ColumnBreakpoints = chosen.toMap()
+	}
 }
 
 // spacingOf is the spacing the user chose for page l, while the settings are
@@ -297,7 +365,7 @@ func (p *LayoutManagerPage) LoadHook(fn LoadHook) *LayoutManagerPage {
 //	    NavIcon(icons.LayoutDashboard).
 //	    NavGroup("Overview").
 //	    Blocks(...).
-//	    GridColumns(3)
+//	    GridColumnsFixed(3)
 
 // NavLabel overrides the label shown in the sidebar (defaults to the page
 // name).

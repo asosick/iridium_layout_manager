@@ -215,19 +215,23 @@
     transform: rotate(45deg);
 }
 
-/* The container the grid's responsive columns query. */
+/* The container the page's own container queries measure. */
 .lm-grid-wrap {
     container-type: inline-size;
 }
 
-/* Grid container — column count provided inline via --lm-cols so the host
-   can vary it per page. */
+/* Grid container. The page's columns at each breakpoint come inline
+   (--lm-cols-xs … --lm-cols-2xl, and --lm-cols-max, its widest), so the host
+   can vary them per page; --lm-cols is the count at the viewport's width.
+   The breakpoints are Iridium's (Tailwind's): xs at any width, sm 40rem,
+   md 48rem, lg 64rem, xl 80rem and 2xl 96rem. */
 .lm-grid {
     --lm-masonry-row: 8px;
     /* The space between blocks, across and down; the resize guide matches. */
     --lm-gap: 1rem;
+    --lm-cols: var(--lm-cols-xs, var(--lm-cols-max, 1));
     display: grid;
-    grid-template-columns: repeat(var(--lm-cols, 2), minmax(0, 1fr));
+    grid-template-columns: repeat(var(--lm-cols), minmax(0, 1fr));
     gap: var(--lm-gap);
     min-height: 4rem;
     position: relative;
@@ -246,22 +250,36 @@
     grid-auto-rows: auto;
 }
 
-/* Narrow screens get one column, whatever the page's column count. */
-@container (max-width: 32rem) {
-    .lm-grid,
-    .lm-grid-guide {
-        grid-template-columns: minmax(0, 1fr);
-    }
-    .lm-grid > .lm-block {
-        grid-column: span 1 / span 1;
-    }
+@media (min-width: 40rem) {
+    .lm-grid { --lm-cols: var(--lm-cols-sm, var(--lm-cols-max, 1)); }
 }
 
+@media (min-width: 48rem) {
+    .lm-grid { --lm-cols: var(--lm-cols-md, var(--lm-cols-max, 1)); }
+}
+
+@media (min-width: 64rem) {
+    .lm-grid { --lm-cols: var(--lm-cols-lg, var(--lm-cols-max, 1)); }
+}
+
+@media (min-width: 80rem) {
+    .lm-grid { --lm-cols: var(--lm-cols-xl, var(--lm-cols-max, 1)); }
+}
+
+@media (min-width: 96rem) {
+    .lm-grid { --lm-cols: var(--lm-cols-2xl, var(--lm-cols-max, 1)); }
+}
+
+/* One cell per column at the page's widest; where it has fewer, the cells
+   past its columns wrap onto a row of no height, out of sight. */
 .lm-grid-guide {
     position: absolute;
     inset: 0;
     display: grid;
-    grid-template-columns: repeat(var(--lm-cols, 2), minmax(0, 1fr));
+    grid-template-columns: repeat(var(--lm-cols), minmax(0, 1fr));
+    grid-template-rows: 100%;
+    grid-auto-rows: 0;
+    overflow: hidden;
     gap: var(--lm-gap);
     opacity: 0;
     pointer-events: none;
@@ -284,10 +302,14 @@
 }
 
 /* Single block in the grid. data-cols is the live column span for this
-   block; we map it onto a CSS variable so the inline attribute drives the
-   grid-column declaration without dynamic style attributes (CSP-friendly). */
+   block, in columns of the page at its widest; we map it onto a CSS variable
+   so the inline attribute drives the grid-column declaration without dynamic
+   style attributes (CSP-friendly). Where the page has fewer columns, the
+   block keeps its share of the page, rounded up, between one column and all
+   of them. */
 .lm-block {
-    grid-column: span var(--lm-block-cols, 1) / span var(--lm-block-cols, 1);
+    --lm-span: min(var(--lm-cols), max(1, round(up, calc(var(--lm-block-cols, 1) * var(--lm-cols) / var(--lm-cols-max, var(--lm-cols))), 1)));
+    grid-column: span var(--lm-span) / span var(--lm-span);
     border: 1px solid transparent;
     border-radius: var(--radius, 0.5rem);
     background: var(--color-background);
@@ -1274,6 +1296,126 @@ html.lm-dragging-card .lm-block-content {
     .lm-spacing-glyph {
         display: none;
     }
+}
+
+/* Columns per screen size: a disclosure under the columns, a row per
+   breakpoint with its name, its width and a choice of columns. */
+.lm-settings-breakpoints {
+    margin-top: -0.25rem;
+}
+
+.lm-settings-breakpoints > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-weight: 500;
+    cursor: pointer;
+    list-style: none;
+}
+
+.lm-settings-breakpoints > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* The disclosure's chevron, turning down when open. */
+.lm-settings-breakpoints > summary::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 120ms ease;
+}
+
+.lm-settings-breakpoints[open] > summary::before {
+    transform: rotate(45deg);
+}
+
+.lm-settings-breakpoints > summary:focus-visible {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.lm-breakpoint-list {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+    border-radius: calc(var(--radius, 0.5rem) + 2px);
+    overflow: hidden;
+}
+
+.lm-breakpoint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.lm-breakpoint + .lm-breakpoint {
+    border-top: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+.lm-breakpoint.is-current .lm-breakpoint-here {
+    display: inline;
+}
+
+.lm-breakpoint.is-current {
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.lm-breakpoint-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.lm-breakpoint-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.lm-breakpoint-width {
+    color: var(--color-muted-foreground);
+    font-size: 0.75rem;
+    line-height: 1rem;
+}
+
+.lm-breakpoint-here {
+    display: none;
+    padding: 0 0.375rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+    color: var(--color-primary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.125rem;
+    white-space: nowrap;
+}
+
+.lm-breakpoint-select {
+    flex-shrink: 0;
+    min-height: 2rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius, 0.5rem);
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font: inherit;
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+
+.lm-breakpoint-select:focus-visible {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {

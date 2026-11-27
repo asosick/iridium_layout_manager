@@ -10,8 +10,9 @@ import "encoding/json"
 //   - Type matches a BlockSpec.Key() — the LayoutManagerPage looks up the spec
 //     by Type to render the block.
 //   - Cols is the column span this instance takes inside the layout grid,
-//     clamped to [1, the page's columns] (GridColumns, or the number the
-//     user chose in the settings).
+//     clamped to [1, the page's columns at its widest] (GridColumns, or the
+//     columns the user chose in the settings). Where the page has fewer
+//     columns the block keeps its share of the page, rounded up.
 type Block struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
@@ -24,10 +25,16 @@ type Block struct {
 type Layout struct {
 	// Name labels the page's selector button; empty shows its number.
 	Name string `json:"name,omitempty"`
-	// Columns is the number of columns the user chose for the page in the
-	// settings dialog (see LayoutManagerPage.Settings); 0 leaves it at
-	// GridColumns. It applies only while the settings are on.
+	// Columns is the number of columns the user chose for the page at its
+	// widest in the settings dialog (see LayoutManagerPage.Settings); 0
+	// leaves it at GridColumns. The page keeps GridColumns' smaller screens,
+	// up to it. It applies only while the settings are on.
 	Columns int `json:"columns,omitempty"`
+	// ColumnBreakpoints are the columns the user chose for the page at each
+	// breakpoint ("xs" to "2xl", as GridColumns takes them) under "Columns
+	// per screen size" in the settings dialog; when set, they replace
+	// Columns. It applies only while the settings are on.
+	ColumnBreakpoints map[string]int `json:"columnBreakpoints,omitempty"`
 	// Spacing is the space between the page's blocks the user chose in the
 	// settings dialog; empty follows the page's vertical padding. It applies
 	// only while the settings are on.

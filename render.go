@@ -52,8 +52,11 @@ func (p *LayoutManagerPage) pageData(w http.ResponseWriter, r *http.Request, sta
 		shown = state.Layouts[currentLayout]
 	}
 
+	columns := p.breakpointsOf(shown)
 	d := &views.PageData{
-		GridColumns:    p.columnsOf(shown),
+		GridColumns:    columns.widest(),
+		ColumnsAt:      columns[:],
+		ColumnsCustom:  p.settings && len(shown.ColumnBreakpoints) > 0,
 		Spacing:        string(p.spacingOf(shown)),
 		Settings:       p.settings,
 		MaxColumns:     p.maxColumns(),

@@ -78,7 +78,7 @@ func TestWithCurrentPageQueryFallsBackForMalformedURL(t *testing.T) {
 func storedLayoutPage(stored *LayoutState) *LayoutManagerPage {
 	return NewLayoutManagerPage("Dashboard", "dashboard").
 		Blocks(StaticBlock("note", "Note", templ.NopComponent)).
-		GridColumns(3).
+		GridColumnsFixed(3).
 		LoadHook(func(*http.Request) (LayoutState, error) { return *stored, nil }).
 		SaveHook(func(_ *http.Request, state LayoutState) error {
 			*stored = state

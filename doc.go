@@ -16,7 +16,7 @@
 //	        layoutmgr.StaticBlock("welcome", "Welcome", welcomeBlock()),
 //	        layoutmgr.WidgetBlock("salesChart", "Sales Chart", salesChartWidget),
 //	    ).
-//	    GridColumns(3)
+//	    GridColumns(map[string]int{"xs": 1, "md": 2, "lg": 3})
 //
 //	panel.PanelItems(layoutPage)
 package layoutmgr

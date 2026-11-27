@@ -54,7 +54,7 @@ func main() {
             ),
             layoutmgr.WidgetBlock("salesStats", "Sales stats", salesStats),
         ).
-        GridColumns(3)
+        GridColumns(map[string]int{"xs": 1, "md": 2, "lg": 3})
 
     mux := http.NewServeMux()
     p := panel.New(mux).Path("admin").PanelItems(dashboard)
@@ -76,7 +76,8 @@ user edits again, while view mode always shows the committed arrangement.
 Blocks flow in order, left to right and top to bottom, each spanning as many
 small rows as its content needs (masonry), so a tall widget does not force
 unrelated shorter widgets to leave an empty row beneath them, and the order on
-screen is the order stored. Under 32rem of width the grid becomes one column.
+screen is the order stored. The grid's columns change with the screen's width
+(see [Columns per screen size](#columns-per-screen-size)).
 
 ## Block kinds
 
@@ -165,7 +166,8 @@ block ID (`ctxkeys.FEIDOverride`), so a block can keep settings per instance.
 ```go
 layoutmgr.NewLayoutManagerPage("Dashboard", "dashboard").
     Blocks(...).
-    GridColumns(3).            // 1..N column grid
+    GridColumns(map[string]int{"xs": 1, "md": 2, "xl": 4}). // columns per breakpoint
+    // or GridColumnsFixed(3)  // the same columns at every width, phones included
     LayoutCount(3).            // fix the number of pages (default: users add their own)
     RenamablePages(true).      // users can name their pages (default true)
     Heading("My Dashboard").   // override the H1
@@ -185,6 +187,34 @@ page header, at the right beside the title. When it wraps onto two rows, both
 keep to the right edge. A page with no title (`Title("")`, and no description)
 gives the toolbar the whole header, at the left as an Iridium page's actions
 are, or at the right with `AlignToolbarRight()`.
+
+### Columns per screen size
+
+`GridColumns` takes a column count per breakpoint, like Iridium's own
+`SchemaColumns` and `HeaderColumns`, and `GridColumnsFixed(n)` is the
+shorthand for one count at every width. The keys are Iridium's breakpoints, at
+its viewport widths:
+
+| Key   | From   |
+|-------|--------|
+| `xs`  | any width |
+| `sm`  | 640px  |
+| `md`  | 768px  |
+| `lg`  | 1024px |
+| `xl`  | 1280px |
+| `2xl` | 1536px |
+
+Each count applies from its breakpoint up until a larger one sets another, and
+`xs` is 1 unless you give it. So `{"xs": 1, "md": 2, "xl": 4}` gives phones one
+column, tablets and laptops two, and desktops four. Without `GridColumns` a
+page has `{"xs": 1, "sm": 2}`.
+
+Blocks are resized in the columns of the page at its widest (four above), and
+keep their share of the page where it has fewer columns, rounded up: a block
+two of four columns wide takes one of two, one three of four wide takes all of
+two, and on one column every block is full width. Resizing a block on a
+narrower screen stores its span in the widest columns too, so a block dragged
+to full width on a tablet is full width on a desktop as well.
 
 ### Multiple pages
 
@@ -227,13 +257,22 @@ Compact, Tight or None. A page starts with `GridColumns` and the spacing its
 vertical padding gives. Like any other edit, Done keeps the choice and Reset
 or Cancel undoes it.
 
+The number of columns is the page's count on the widest screens, and smaller
+screens keep theirs, up to that number: on a page of
+`{"xs": 1, "md": 2, "lg": 4}`, choosing 6 gives `{"xs": 1, "md": 2, "lg": 6}`.
+Under **Columns per screen size** the user chooses the columns for each
+breakpoint (Phones, Large phones, Tablets, Laptops, Desktops and Wide screens),
+and the size of the screen they are on is marked.
+
 ![The page settings dialog over a dashboard in edit mode: four columns and compact spacing chosen for the page shown](docs/images/settings.png)
 
 When a page's number of columns changes, a block as wide as the page stays as
 wide as the page; the others keep their span, up to the new number of columns.
 The choices are kept with each page in the `LayoutState`
-(`{"columns":4,"spacing":"compact",…}`, only when they differ from the page's
-own), so a `SaveHook` stores them with the rest. Without `Settings()` they are
+(`{"columns":4,"spacing":"compact",…}`, with
+`"columnBreakpoints":{"xs":1,…,"2xl":4}` when the user chose columns per
+screen size, only when they differ from the page's own), so a `SaveHook`
+stores them with the rest. Without `Settings()` they are
 not offered, and stored ones are ignored.
 
 ### Persistence

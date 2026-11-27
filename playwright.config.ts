@@ -35,17 +35,18 @@ export default defineConfig<{}, { e2eTLS: boolean }>({
       use: { ...devices['Desktop Chrome'] },
     },
     // Dragging goes through each engine's native drag and drop (and the
-    // gallery's cards through its pointer events), so the drag specs also run
+    // gallery's cards through its pointer events), and block spans per
+    // breakpoint through each engine's CSS round(), so those specs also run
     // in Firefox and WebKit, over HTTPS: WebKit refuses the plugin's Secure
     // cookies on plain HTTP, even on loopback (S17).
     {
       name: 'firefox',
-      testMatch: ['**/reorder-drag.spec.ts', '**/resize.spec.ts', '**/gallery.spec.ts'],
+      testMatch: ['**/reorder-drag.spec.ts', '**/resize.spec.ts', '**/gallery.spec.ts', '**/breakpoints.spec.ts'],
       use: { ...devices['Desktop Firefox'], e2eTLS: true, ignoreHTTPSErrors: true },
     },
     {
       name: 'webkit',
-      testMatch: ['**/reorder-drag.spec.ts', '**/resize.spec.ts', '**/gallery.spec.ts'],
+      testMatch: ['**/reorder-drag.spec.ts', '**/resize.spec.ts', '**/gallery.spec.ts', '**/breakpoints.spec.ts'],
       use: { ...devices['Desktop Safari'], e2eTLS: true, ignoreHTTPSErrors: true },
     },
   ],

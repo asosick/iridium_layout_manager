@@ -10,7 +10,12 @@ import (
 // PageData carries everything the page template needs at render time.
 // Constructed by LayoutManagerPage.GetComponent() per request.
 type PageData struct {
-    GridColumns    int               // the shown page's columns
+    GridColumns    int               // the shown page's columns at its widest
+    // ColumnsAt are the shown page's columns at each breakpoint, in the
+    // order of Breakpoints. ColumnsCustom reports whether the user chose
+    // them breakpoint by breakpoint in the settings.
+    ColumnsAt     []int
+    ColumnsCustom bool
     Blocks         []BlockData       // currently-placed blocks
     AddOptions     []BlockOption     // the block gallery's cards
     ShowLockButton bool
@@ -84,6 +89,25 @@ var SpacingOptions = []SpacingOption{
     {Value: "compact", Label: "Compact"},
     {Value: "tight", Label: "Tight"},
     {Value: "none", Label: "None"},
+}
+
+// BreakpointOption is one screen size in the settings dialog's "Columns per
+// screen size": a breakpoint of GridColumns, named for people.
+type BreakpointOption struct {
+    Key   string // the breakpoint, as GridColumns takes it
+    Label string
+    Width string // from what width it applies
+}
+
+// Breakpoints are the screen sizes, smallest first, at the widths the
+// stylesheet gives them.
+var Breakpoints = []BreakpointOption{
+    {Key: "xs", Label: "Phones", Width: "Any width"},
+    {Key: "sm", Label: "Large phones", Width: "640px and wider"},
+    {Key: "md", Label: "Tablets", Width: "768px and wider"},
+    {Key: "lg", Label: "Laptops", Width: "1024px and wider"},
+    {Key: "xl", Label: "Desktops", Width: "1280px and wider"},
+    {Key: "2xl", Label: "Wide screens", Width: "1536px and wider"},
 }
 
 // PageNameLength is the longest page name the server keeps, in characters.
@@ -173,13 +197,14 @@ templ SettingsDialog(d *PageData) {
                     <div class="lm-segmented">
                         for n := 1; n <= d.MaxColumns; n++ {
                             <label class="lm-segment">
-                                <input type="radio" name="lm-columns" value={ strconv.Itoa(n) } x-model="settingsColumns"/>
+                                <input type="radio" name="lm-columns" value={ strconv.Itoa(n) } x-model="settingsColumns" @change="settingsColumnsChosen"/>
                                 <span>{ strconv.Itoa(n) }</span>
                             </label>
                         }
                     </div>
-                    <p class="lm-settings-hint">Blocks keep their width; full-width blocks stay full width.</p>
+                    <p class="lm-settings-hint">On the widest screens. Blocks keep their width; full-width blocks stay full width.</p>
                 </fieldset>
+                @BreakpointSettings(d)
                 <fieldset class="lm-settings-field">
                     <legend class="ir-field-label">Space between blocks</legend>
                     <div class="lm-segmented">
@@ -199,6 +224,43 @@ templ SettingsDialog(d *PageData) {
             </div>
         </form>
     </dialog>
+}
+
+// BreakpointSettings is the settings dialog's "Columns per screen size": the
+// page's columns at each breakpoint, each applying from its width up. It is
+// open when the page has columns chosen breakpoint by breakpoint. The size of
+// the screen the dialog is on is marked (is-current). The script sets the
+// choices: Alpine's CSP build cannot bind a field of an object.
+templ BreakpointSettings(d *PageData) {
+    <details class="lm-settings-breakpoints" data-lm-settings-breakpoints>
+        <summary class="ir-field-label">Columns per screen size</summary>
+        <div class="lm-breakpoint-list">
+            for _, bp := range Breakpoints {
+                <label class="lm-breakpoint" data-breakpoint={ bp.Key }>
+                    <span class="lm-breakpoint-text">
+                        <span class="lm-breakpoint-label">
+                            { bp.Label }
+                            <span class="lm-breakpoint-here">This screen</span>
+                        </span>
+                        <span class="lm-breakpoint-width">{ bp.Width }</span>
+                    </span>
+                    <select class="lm-breakpoint-select" name={ "lm-columns-" + bp.Key } data-breakpoint={ bp.Key } @change="settingsBreakpointChosen">
+                        for n := 1; n <= d.MaxColumns; n++ {
+                            <option value={ strconv.Itoa(n) }>{ columnsLabel(n) }</option>
+                        }
+                    </select>
+                </label>
+            }
+        </div>
+        <p class="lm-settings-hint">Each size applies from its width up. Blocks keep their share of the page where it has fewer columns.</p>
+    </details>
+}
+
+func columnsLabel(n int) string {
+    if n == 1 {
+        return "1 column"
+    }
+    return strconv.Itoa(n) + " columns"
 }
 
 // PageAttributes binds layout-manager state to Iridium's native page root.
